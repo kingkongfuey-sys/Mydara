@@ -330,4 +330,12 @@ class UiLogicTest {
         assertEquals(com.example.mydara.game.PlanetType.DEFENSIVE, own.type)
         assertEquals(com.example.mydara.game.PlanetType.DEFENSIVE, s.hudState().selectedType)
     }
+
+    @Test
+    fun unitLabelsAppearOnlyAboveTen() {
+        assertFalse(UnitLabel.visible(1))
+        assertFalse(UnitLabel.visible(10))
+        assertTrue(UnitLabel.visible(11))
+        assertTrue(UnitLabel.visible(250))
+    }
 }

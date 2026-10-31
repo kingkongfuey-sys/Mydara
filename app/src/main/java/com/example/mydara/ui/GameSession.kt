@@ -50,10 +50,15 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
     val particles = ParticleSystem(seed xor 0x5DEECE66DL)
     val stars = StarField(seed xor 0x2545F491L, model.mapWidth, model.mapHeight, config.size)
 
+    val feedback = FeedbackDirector(Fraction.PLAYER, seed)
+
     /** Fog of war: planets the player can currently see (own planets and their neighbors). */
     val visible = BooleanArray(model.planets.size) { true }
 
     private var accumulator = 0.0
+    private var lastSelectedId = -1
+    private var lastHalved = false
+    private var lastOutcome = Outcome.PLAYING
 
     init {
         updateFog()
@@ -102,6 +107,7 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
 
     /** Advances by real time; runs fixed 60 Hz simulation steps (max 5 per call). */
     fun advance(dtSeconds: Double, nowMs: Long) {
+        feedback.nowMs = nowMs
         accumulator += dtSeconds
         var steps = 0
         while (accumulator >= GameModel.FRAME_DT && steps < 5) {
@@ -111,6 +117,7 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         }
         if (steps == 5) accumulator = 0.0
         input.update(nowMs)
+        trackSelectionFeedback()
         camera.step()
         updateFog()
     }
@@ -118,17 +125,34 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
     internal fun stepOnce() {
         model.step()
         for (ai in ais) ai.update()
-        for (e in model.drainEvents()) when (e) {
-            is GameEvent.UnitDied -> particles.burst(e.x, e.y, e.fraction.argb)
-            is GameEvent.PlanetHit -> particles.burst(e.planet.x, e.planet.y, e.attacker.argb, scale = 2.0)
-            is GameEvent.PlanetCaptured -> particles.burst(e.planet.x, e.planet.y, e.newOwner.argb, scale = 2.0)
+        val events = model.drainEvents()
+        for (e in events) feedback.onEvent(e)
+        for (e in events) when (e) {
+            is GameEvent.UnitDied -> particles.burst(e.x, e.y, e.fraction.particleArgb)
+            is GameEvent.PlanetHit -> particles.burst(e.planet.x, e.planet.y, e.attacker.particleArgb, scale = 2.0)
+            is GameEvent.PlanetCaptured -> particles.burst(e.planet.x, e.planet.y, e.newOwner.particleArgb, scale = 2.0)
             is GameEvent.LinkRecolored ->
-                particles.alongLink(e.link, (e.link.solidFraction ?: Fraction.NEUTRAL).argb)
+                particles.alongLink(e.link, (e.link.solidFraction ?: Fraction.NEUTRAL).particleArgb)
+            is GameEvent.UnitsSent, is GameEvent.Upgraded -> Unit
+        }
+        if (model.outcome != lastOutcome) {
+            lastOutcome = model.outcome
+            feedback.onOutcome(model.outcome)
         }
         if (!model.paused) {
             particles.step()
             stars.step(model.frame)
         }
+    }
+
+    /** Tick when a planet gets selected; a distinct cue when long-press arms the half-send mode. */
+    private fun trackSelectionFeedback() {
+        val id = input.selected?.id ?: -1
+        val armedNow = input.halved && !lastHalved
+        if (id != lastSelectedId && id != -1 && !armedNow) feedback.onSelect()
+        if (armedNow) feedback.onArmed()
+        lastSelectedId = id
+        lastHalved = input.halved
     }
 
     private fun updateFog() {

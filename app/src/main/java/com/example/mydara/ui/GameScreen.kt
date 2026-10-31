@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -34,14 +36,21 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,21 +61,43 @@ import com.example.mydara.game.Outcome
 import com.example.mydara.game.PlanetType
 import kotlin.math.roundToInt
 
-private val Panel = Color(0xFF222222)
+private val KnobText = Color(0xFF0B2A3A)
+private val DotsFill = Color(0xFF123A4E)
 
-/** Stage 3 game UI: canvas + gestures + HUD + result overlay. [onExit] is the Return-to-menu button. */
+/** Game UI: canvas + gestures + minimal HUD. [onExit] is the Return-to-menu button on the result overlay. */
 @Composable
 fun GameScreen(config: GameConfig, onExit: () -> Unit) {
     val slop = LocalViewConfiguration.current.touchSlop
     val session = remember(config) { GameSession(config, slop.toDouble()) }
     var frameTick by remember(session) { mutableIntStateOf(0) }
     var hud by remember(session) { mutableStateOf(session.hudState()) }
+    var speedOpen by remember(session) { mutableStateOf(false) }
+    var infoOpen by remember(session) { mutableStateOf(false) }
     val paint = remember {
         Paint().apply {
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
         }
+    }
+
+    // Sound + haptics: synthesized effects, switches persisted in SharedPreferences.
+    val context = LocalContext.current
+    val view = LocalView.current
+    val feedback = remember { AndroidFeedback(context, view) }
+    var soundOn by remember { mutableStateOf(FeedbackSettings.sound) }
+    var hapticsOn by remember { mutableStateOf(FeedbackSettings.haptics) }
+    DisposableEffect(session, feedback) {
+        session.feedback.sink = feedback
+        onDispose {
+            session.feedback.sink = FeedbackSink.None
+        }
+    }
+    DisposableEffect(feedback) { onDispose { feedback.release() } }
+    LaunchedEffect(Unit) {
+        FeedbackPrefs.load(context)
+        soundOn = FeedbackSettings.sound
+        hapticsOn = FeedbackSettings.haptics
     }
 
     // Game loop: one vsync-driven coroutine; the session runs fixed 60 Hz steps internally.
@@ -84,7 +115,7 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF111111))) {
+    Box(Modifier.fillMaxSize().background(BackgroundColor)) {
         Canvas(
             Modifier
                 .fillMaxSize()
@@ -112,28 +143,50 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
             drawGame(session, paint)
         }
 
-        // top-left: play/pause + velocity slider
-        Row(
-            Modifier.align(Alignment.TopStart).padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            PlayPauseButton(paused = hud.paused, onClick = { session.togglePause() })
-            Spacer(Modifier.width(10.dp))
-            VelocitySlider(
-                index = hud.velocityIndex,
-                dimmed = hud.paused,
-                onIndex = { session.setVelocityIndex(it) },
-                modifier = Modifier.width(200.dp).height(44.dp)
-            )
+        // top-left: pause + fast-forward (opens the velocity slider)
+        Column(Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PauseIcon(paused = hud.paused, onClick = { session.togglePause() })
+                Spacer(Modifier.width(10.dp))
+                FastForwardIcon(
+                    label = velocityLabel(GameModel.VELOCITY_STEPS[hud.velocityIndex]),
+                    onClick = { speedOpen = !speedOpen }
+                )
+            }
+            if (speedOpen) {
+                VelocitySlider(
+                    index = hud.velocityIndex,
+                    onIndex = { session.setVelocityIndex(it) },
+                    modifier = Modifier.padding(start = 8.dp, top = 2.dp).width(230.dp).height(44.dp)
+                )
+            }
         }
 
-        // top-right: seed
-        Text(
-            "seed ${session.seed}",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 12.sp,
-            modifier = Modifier.align(Alignment.TopEnd).padding(14.dp)
-        )
+        // top-right: three-dot icon; tap for seed + sound / haptics switches
+        Column(
+            Modifier.align(Alignment.TopEnd).padding(end = 6.dp, top = 10.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            MenuDotsIcon(onClick = { infoOpen = !infoOpen })
+            if (infoOpen) {
+                Text(
+                    "seed ${session.seed}",
+                    color = IconFill.copy(alpha = 0.85f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(end = 10.dp)
+                )
+                MenuToggle("Sound", soundOn) {
+                    soundOn = !soundOn
+                    FeedbackSettings.sound = soundOn
+                    FeedbackPrefs.save(context)
+                }
+                MenuToggle("Haptics", hapticsOn) {
+                    hapticsOn = !hapticsOn
+                    FeedbackSettings.haptics = hapticsOn
+                    FeedbackPrefs.save(context)
+                }
+            }
+        }
 
         // bottom corners: upgrade buttons for the selected own planet
         val type = hud.selectedType
@@ -157,24 +210,82 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
 }
 
 @Composable
-private fun PlayPauseButton(paused: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.size(44.dp).clip(CircleShape).background(Panel).clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(Modifier.size(20.dp)) {
+private fun MenuToggle(label: String, on: Boolean, onClick: () -> Unit) {
+    Text(
+        "$label  ${if (on) "on" else "off"}",
+        color = IconFill.copy(alpha = if (on) 1f else 0.5f),
+        fontSize = 14.sp,
+        modifier = Modifier.clickable { onClick() }.padding(horizontal = 10.dp, vertical = 8.dp)
+    )
+}
+
+private fun velocityLabel(v: Double): String =
+    (if (v == v.toInt().toDouble()) v.toInt().toString() else v.toString()) + "x"
+
+// ---------------------------------------------------------------------- icons (light gray, dark outline)
+
+@Composable
+private fun PauseIcon(paused: Boolean, onClick: () -> Unit) {
+    Box(Modifier.size(44.dp).clickable { onClick() }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(24.dp)) {
+            val w = size.width
+            val h = size.height
+            val sw = w * 0.08f
             if (paused) {
                 val tri = Path().apply {
-                    moveTo(size.width * 0.15f, 0f)
-                    lineTo(size.width, size.height / 2f)
-                    lineTo(size.width * 0.15f, size.height)
+                    moveTo(w * 0.2f, h * 0.05f)
+                    lineTo(w * 0.95f, h * 0.5f)
+                    lineTo(w * 0.2f, h * 0.95f)
                     close()
                 }
-                drawPath(tri, Color.White)
+                drawPath(tri, IconFill)
+                drawPath(tri, InkColor, style = Stroke(width = sw, join = StrokeJoin.Round))
             } else {
-                val w = size.width * 0.3f
-                drawRect(Color.White, Offset(size.width * 0.1f, 0f), androidx.compose.ui.geometry.Size(w, size.height))
-                drawRect(Color.White, Offset(size.width * 0.6f, 0f), androidx.compose.ui.geometry.Size(w, size.height))
+                for (x in listOf(0.12f, 0.58f)) {
+                    drawRoundRect(IconFill, Offset(w * x, h * 0.05f), Size(w * 0.3f, h * 0.9f), CornerRadius(w * 0.06f))
+                    drawRoundRect(
+                        InkColor, Offset(w * x, h * 0.05f), Size(w * 0.3f, h * 0.9f), CornerRadius(w * 0.06f),
+                        style = Stroke(width = sw)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FastForwardIcon(label: String, onClick: () -> Unit) {
+    Row(Modifier.clickable { onClick() }.padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.size(28.dp)) {
+                val w = size.width
+                val h = size.height
+                val sw = w * 0.07f
+                for (x0 in listOf(0.04f, 0.5f)) {
+                    val t = Path().apply {
+                        moveTo(w * x0, h * 0.12f)
+                        lineTo(w * (x0 + 0.46f), h * 0.5f)
+                        lineTo(w * x0, h * 0.88f)
+                        close()
+                    }
+                    drawPath(t, IconFill)
+                    drawPath(t, InkColor, style = Stroke(width = sw, join = StrokeJoin.Round))
+                }
+            }
+        }
+        Text(label, color = IconFill.copy(alpha = 0.8f), fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun MenuDotsIcon(onClick: () -> Unit) {
+    Box(Modifier.size(44.dp).clickable { onClick() }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.width(12.dp).height(30.dp)) {
+            val r = size.width * 0.42f
+            for (f in listOf(0.14f, 0.5f, 0.86f)) {
+                val c = Offset(size.width / 2f, size.height * f)
+                drawCircle(DotsFill, r, c)
+                drawCircle(IconFill, r, c, style = Stroke(width = size.width * 0.14f))
             }
         }
     }
@@ -182,7 +293,7 @@ private fun PlayPauseButton(paused: Boolean, onClick: () -> Unit) {
 
 /** Drag slider that snaps to the 13 velocity values; the knob shows the current multiplier. */
 @Composable
-private fun VelocitySlider(index: Int, dimmed: Boolean, onIndex: (Int) -> Unit, modifier: Modifier) {
+private fun VelocitySlider(index: Int, onIndex: (Int) -> Unit, modifier: Modifier) {
     val steps = GameModel.VELOCITY_STEPS.size
     var widthPx by remember { mutableIntStateOf(1) }
     var heightPx by remember { mutableIntStateOf(1) }
@@ -211,43 +322,37 @@ private fun VelocitySlider(index: Int, dimmed: Boolean, onIndex: (Int) -> Unit, 
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val r = size.height * 0.45f
-            val alpha = if (dimmed) 0.4f else 1f
             val y = size.height / 2f
-            drawLine(
-                Color.White, Offset(r, y), Offset(size.width - r, y),
-                strokeWidth = 4f, alpha = 0.35f * alpha
-            )
+            drawLine(IconFill, Offset(r, y), Offset(size.width - r, y), strokeWidth = 4f, alpha = 0.4f)
             for (i in 0 until steps) {
                 val x = r + (size.width - 2 * r) * i / (steps - 1)
-                drawCircle(Color.White, 3f, Offset(x, y), alpha = 0.5f * alpha)
+                drawCircle(IconFill, 3f, Offset(x, y), alpha = 0.6f)
             }
             val kx = r + (size.width - 2 * r) * knobFraction
-            drawCircle(Panel, r, Offset(kx, y), alpha = alpha)
-            drawCircle(Color.White, r, Offset(kx, y), alpha = alpha, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
-            val v = GameModel.VELOCITY_STEPS[index.coerceIn(0, steps - 1)]
-            val label = (if (v == v.toInt().toDouble()) v.toInt().toString() else v.toString()) + "x"
-            drawLabel(textPaint, label, kx, y, r * 0.8f, Color.White.toArgb())
+            drawCircle(IconFill, r, Offset(kx, y))
+            drawCircle(InkColor, r, Offset(kx, y), style = Stroke(width = 3f))
+            val label = velocityLabel(GameModel.VELOCITY_STEPS[index.coerceIn(0, steps - 1)])
+            drawLabel(textPaint, label, kx, y, r * 0.8f, KnobText.toArgb())
         }
     }
 }
 
 @Composable
 private fun UpgradeButton(type: PlanetType, affordable: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val a = if (affordable) 1f else 0.5f
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("10", color = Color.White.copy(alpha = if (affordable) 1f else 0.45f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text("10", color = IconFill.copy(alpha = a), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         Box(
             Modifier
-                .size(60.dp)
+                .size(58.dp)
                 .clip(CircleShape)
-                .background(if (type == PlanetType.ECONOMIC) Color(0xFF2E7D32) else Color(0xFF1565C0))
+                .background(IconFill.copy(alpha = a))
+                .border(2.dp, InkColor, CircleShape)
                 .clickable { onClick() },
             contentAlignment = Alignment.Center
         ) {
-            Canvas(Modifier.size(32.dp)) {
-                drawTypeGlyph(
-                    type, Offset(size.width / 2f, size.height / 2f), size.width * 0.4f,
-                    Color.White, alpha = if (affordable) 1f else 0.45f
-                )
+            Canvas(Modifier.size(30.dp)) {
+                drawTypeGlyph(type, Offset(size.width / 2f, size.height / 2f), size.width * 0.38f, InkColor)
             }
         }
     }
@@ -258,7 +363,7 @@ private fun ResultOverlay(outcome: Outcome, onExit: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.65f))
+            .background(BackgroundColor.copy(alpha = 0.8f))
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) awaitPointerEvent().changes.forEach { it.consume() }
@@ -271,9 +376,9 @@ private fun ResultOverlay(outcome: Outcome, onExit: () -> Unit) {
                 if (outcome == Outcome.VICTORY) "Victory" else "Defeat",
                 color = if (outcome == Outcome.VICTORY) Color(Fraction.PLAYER.argb) else Color(Fraction.RED.argb),
                 fontSize = 44.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Light
             )
-            Button(onClick = onExit) { Text("Return to menu") }
+            Button(onClick = onExit) { Text("Back to setup") }
         }
     }
 }

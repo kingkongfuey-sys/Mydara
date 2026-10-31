@@ -35,6 +35,9 @@ object MapGenerator {
     private const val MAX_ATTEMPTS = 200
     private const val SPECIAL_SHARE = 0.15
 
+    /** When false (current design) every neutral planet is NORMAL; true restores ~15% economic + 15% defensive. */
+    const val SPECIAL_NEUTRALS = false
+
     fun generate(seed: Long, size: MapSize, opponents: Int): GameModel {
         require(opponents in 1..3) { "opponents must be 1..3" }
         for (attempt in 0 until MAX_ATTEMPTS) {
@@ -162,11 +165,13 @@ object MapGenerator {
         val starts = pickStarts(xs, ys, adjacent, opponents + 1) ?: return null
         val fractions = (listOf(Fraction.PLAYER) + Fraction.AI_ORDER.take(opponents)).shuffled(rng)
 
-        val neutrals = (0 until n).filter { it !in starts }.shuffled(rng)
-        val special = (neutrals.size * SPECIAL_SHARE).roundToInt()
         val types = HashMap<Int, PlanetType>()
-        for (k in 0 until special) types[neutrals[k]] = PlanetType.ECONOMIC
-        for (k in special until minOf(2 * special, neutrals.size)) types[neutrals[k]] = PlanetType.DEFENSIVE
+        if (SPECIAL_NEUTRALS) {
+            val neutrals = (0 until n).filter { it !in starts }.shuffled(rng)
+            val special = (neutrals.size * SPECIAL_SHARE).roundToInt()
+            for (k in 0 until special) types[neutrals[k]] = PlanetType.ECONOMIC
+            for (k in special until minOf(2 * special, neutrals.size)) types[neutrals[k]] = PlanetType.DEFENSIVE
+        }
 
         val model = GameModel(seed, size.width, size.height)
         for (i in 0 until n) {

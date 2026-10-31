@@ -18,6 +18,10 @@ class Particle {
     var friction = 0.0
     var color = 0L
 
+    /** Short light dash (link recolor) instead of a round dot. */
+    var spark = false
+    var angle = 0.0
+
     val alpha: Double get() = (radius / startRadius).coerceIn(0.0, 1.0)
 }
 
@@ -33,11 +37,11 @@ class ParticleSystem(seed: Long, private val max: Int = MAX_PARTICLES) {
             if (live.size >= max) return
             val ang = rng.nextDouble() * 2 * PI
             val speed = SPEED * (0.4 + rng.nextDouble() * 1.2) * scale
-            spawn(x, y, cos(ang) * speed, sin(ang) * speed, color, scale)
+            spawn(x, y, cos(ang) * speed, sin(ang) * speed, color, scale, false)
         }
     }
 
-    /** Dots scattered along a whole link line (link color changed). */
+    /** Dashes scattered along a whole link line (link color changed). */
     fun alongLink(link: Link, color: Long, count: Int = 25) {
         repeat(count) {
             if (live.size >= max) return
@@ -47,12 +51,12 @@ class ParticleSystem(seed: Long, private val max: Int = MAX_PARTICLES) {
             spawn(
                 link.a.x + (link.b.x - link.a.x) * t,
                 link.a.y + (link.b.y - link.a.y) * t,
-                cos(ang) * speed, sin(ang) * speed, color, 1.0
+                cos(ang) * speed, sin(ang) * speed, color, 1.0, true
             )
         }
     }
 
-    private fun spawn(x: Double, y: Double, vx: Double, vy: Double, color: Long, scale: Double) {
+    private fun spawn(x: Double, y: Double, vx: Double, vy: Double, color: Long, scale: Double, spark: Boolean) {
         val p = Particle()
         p.x = x; p.y = y; p.vx = vx; p.vy = vy
         p.startRadius = (0.05 + 0.10 * rng.nextDouble()) * 0.045 * scale
@@ -60,6 +64,8 @@ class ParticleSystem(seed: Long, private val max: Int = MAX_PARTICLES) {
         p.decay = p.startRadius / (30 + rng.nextInt(21)) // 30..50 frames of life
         p.friction = 0.26 + (rng.nextDouble() - 0.5) * 0.2
         p.color = color
+        p.spark = spark
+        p.angle = rng.nextDouble() * PI
         live += p
     }
 

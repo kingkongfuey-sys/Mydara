@@ -1,7 +1,8 @@
 package com.example.mydara.game
 
 /**
- * @param maxDefense number of defense points (= shield arc segments) a planet of this type spawns with.
+ * @param maxDefense shield points (= ring segments) a planet of this type spawns with and regenerates up to
+ *   (economic planets have no shield).
  * @param growthMultiplier multiplier on garrison growth for owned planets.
  * @param defenseRegenMultiplier multiplier on defense regeneration (0 = never regenerates).
  */

@@ -4,18 +4,28 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- shield arcs (5 of 7 segments left) -->
+    <!-- glow -->
     <path
-        android:strokeColor="#FF2ECC40"
+        android:fillColor="#227EE8A2"
+        android:pathData="M54,54 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0" />
+    <!-- empty shield slots -->
+    <path
+        android:strokeColor="#447EE8A2"
         android:strokeWidth="5"
-        android:strokeLineCap="butt"
-        android:pathData="M45.66,28.32 A27.0,27.0 0 0,1 62.34,28.32 M68.87,31.47 A27.0,27.0 0 0,1 79.28,44.51 M80.89,51.58 A27.0,27.0 0 0,1 77.18,67.85 M72.66,73.52 A27.0,27.0 0 0,1 57.62,80.76 M50.38,80.76 A27.0,27.0 0 0,1 35.34,73.52" />
+        android:pathData="M30.95,68.06 A27.0,27.0 0 0,1 27.13,51.34 M28.64,44.74 A27.0,27.0 0 0,1 39.33,31.33" />
+    <!-- intact shield segments -->
+    <path
+        android:strokeColor="#FFB4F5CA"
+        android:strokeWidth="5"
+        android:pathData="M45.43,28.40 A27.0,27.0 0 0,1 62.57,28.40 M68.67,31.33 A27.0,27.0 0 0,1 79.36,44.74 M80.87,51.34 A27.0,27.0 0 0,1 77.05,68.06 M72.83,73.35 A27.0,27.0 0 0,1 57.38,80.79 M50.62,80.79 A27.0,27.0 0 0,1 35.17,73.35" />
     <!-- planet -->
     <path
-        android:fillColor="#FF2ECC40"
-        android:pathData="M54,54 m-17,0 a17,17 0 1,0 34,0 a17,17 0 1,0 -34,0" />
-    <!-- core highlight -->
+        android:fillColor="#FF7EE8A2"
+        android:strokeColor="#FF2E7A4C"
+        android:strokeWidth="2"
+        android:pathData="M54,54 m-15,0 a15,15 0 1,0 30,0 a15,15 0 1,0 -30,0" />
+    <!-- highlight -->
     <path
-        android:fillColor="#FF1B8A2A"
-        android:pathData="M54,54 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0" />
+        android:fillColor="#66FFFFFF"
+        android:pathData="M47,47 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
 </vector>

@@ -22,7 +22,7 @@ class AiControllerTest {
 
     @Test
     fun attacksNeutralOnlyWhenAffordable() {
-        for ((units, expectAttack) in listOf(9.0 to false, 12.0 to true)) {
+        for ((units, expectAttack) in listOf(9.0 to false, 10.0 to true)) {
             val m = GameModel(1L)
             val a = m.addPlanet(0.2, 0.2, Fraction.GREEN)
             val n = m.addPlanet(0.4, 0.2) // fullHp 10
@@ -84,7 +84,7 @@ class AiControllerTest {
             val m = GameModel(1L)
             val a = m.addPlanet(0.2, 0.2, Fraction.GREEN)
             val b = m.addPlanet(0.6, 0.2, Fraction.GREEN)
-            val t = m.addPlanet(0.4, 0.2, Fraction.RED) // fullHp 10: single needs 15, combined needs 18
+            val t = m.addPlanet(0.4, 0.2, Fraction.RED) // fullHp 10: single needs 18, combined needs 21
             m.addLink(a, t); m.addLink(b, t)
             a.units = 10.0; b.units = 10.0
             val ai = AiController(diff, Fraction.GREEN, m)

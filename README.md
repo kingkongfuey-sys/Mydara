@@ -13,4 +13,4 @@ Gameplay rules are modeled on the skirmish mode of [Opacha-mda](https://github.c
 Install Gradle 8.7 and JDK 17, then run `gradle assembleDebug` (no wrapper JAR is included).
 
 ## Status
-Stages 0-3 done: skeleton, core model, map generator + AI, game screen (rendering, gestures, HUD). The app launches straight into a Medium map vs 1 Normal AI; the menu comes in stage 4.
+Stages 0-4 done, plus sound and haptics: core model, map generator + AI, game screen, main menu, skirmish setup, settings. Flow: Menu -> Setup -> Game -> result -> Setup (system back goes one step up; no quit button). Neutral planets are always normal planets. Sound effects are synthesized in code (no audio assets).

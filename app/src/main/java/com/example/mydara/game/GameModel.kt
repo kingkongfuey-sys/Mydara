@@ -72,7 +72,9 @@ class GameModel(
      * Sends units from [from] to a linked planet [to]. Full send = (int) units; half = (int) units / 2.
      * Creates exactly one batched unit. Returns false if illegal or nothing to send.
      */
-    fun send(from: Planet, to: Planet, half: Boolean = false): Boolean {
+    fun send(from: Planet, to: Planet, half: Boolean = false): Boolean = sendInternal(from, to, half, false)
+
+    private fun sendInternal(from: Planet, to: Planet, half: Boolean, auto: Boolean): Boolean {
         if (isOver || from.fraction.isNeutral) return false
         val link = from.linkTo(to) ?: return false
         val whole = from.wholeUnits
@@ -81,6 +83,7 @@ class GameModel(
         from.units -= value
         _batches += UnitBatch(nextBatchId++, from.fraction, value, from, to, link)
         from.pop = 1.0
+        emit(GameEvent.UnitsSent(from, to, from.fraction, value, auto))
         return true
     }
 
@@ -105,10 +108,11 @@ class GameModel(
         planet.units -= Planet.UPGRADE_COST
         planet.type = newType
         planet.defense = when (newType) {
-            // Source adds +10 uncapped; capped at the 14 visible segments.
+            // +10 shield points, capped at the defensive maximum.
             PlanetType.DEFENSIVE -> minOf(planet.defense + 10.0, newType.maxDefense.toDouble())
             else -> 0.0
         }
+        emit(GameEvent.Upgraded(planet, newType))
         return true
     }
 
@@ -182,7 +186,7 @@ class GameModel(
             p.autoAccumulator += 0.1 * v
             if (p.autoAccumulator >= 1.0) {
                 p.autoAccumulator = 0.0
-                send(p, target, half = false)
+                sendInternal(p, target, half = false, auto = true)
             }
         }
     }
@@ -255,6 +259,7 @@ class GameModel(
     }
 
     private fun capture(p: Planet, newOwner: Fraction, remaining: Double) {
+        val oldOwner = p.fraction
         p.fraction = newOwner
         p.type = PlanetType.NORMAL
         p.defense = PlanetType.NORMAL.maxDefense.toDouble()
@@ -262,7 +267,7 @@ class GameModel(
         p.autoTarget = null
         p.autoAccumulator = 0.0
         p.pop = 1.0
-        emit(GameEvent.PlanetCaptured(p, newOwner))
+        emit(GameEvent.PlanetCaptured(p, newOwner, oldOwner))
         for (l in p.links) {
             val now = l.solidFraction
             if (now != l.styleFraction) {

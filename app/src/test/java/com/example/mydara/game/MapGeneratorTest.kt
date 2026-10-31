@@ -96,16 +96,16 @@ class MapGeneratorTest {
     }
 
     @Test
-    fun typeDistributionAndNeutralStats() {
+    fun allNeutralPlanetsAreNormalWithFullShield() {
+        assertFalse(MapGenerator.SPECIAL_NEUTRALS)
         for (size in MapSize.values()) {
-            val m = MapGenerator.generate(7L, size, 1)
-            val neutrals = m.planets.filter { it.fraction.isNeutral }
-            assertEquals(size.planetCount - 2, neutrals.size)
-            val expected = Math.round(neutrals.size * 0.15).toInt()
-            assertEquals(expected, neutrals.count { it.type == PlanetType.ECONOMIC })
-            assertEquals(expected, neutrals.count { it.type == PlanetType.DEFENSIVE })
-            assertTrue(neutrals.all { it.units == 3.0 })
-            assertTrue(neutrals.filter { it.type == PlanetType.DEFENSIVE }.all { it.defense == 14.0 })
+            for (seed in 1L..100L) {
+                val m = MapGenerator.generate(seed, size, (seed % 3).toInt() + 1)
+                val neutrals = m.planets.filter { it.fraction.isNeutral }
+                assertEquals(size.planetCount - ((seed % 3).toInt() + 2), neutrals.size)
+                assertTrue("special neutral: $size seed=$seed", neutrals.all { it.type == PlanetType.NORMAL })
+                assertTrue(neutrals.all { it.units == 3.0 && it.defense == 7.0 })
+            }
         }
     }
 

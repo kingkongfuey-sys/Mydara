@@ -45,7 +45,7 @@ class GameModelTest {
 
     @Test
     fun captureMathWithDefense() {
-        // value <= defense: only defense drops
+        // value <= defense: only defense drops (7 defense, 3 garrison = 10 to take)
         var (m, a, b) = pair()
         a.units = 5.0
         m.send(a, b); runUntilIdle(m)
@@ -53,7 +53,7 @@ class GameModelTest {
         assertEquals(3.0, b.units, 1e-9)
         assertEquals(Fraction.NEUTRAL, b.fraction)
 
-        // value < defense + garrison: defense -> 0, garrison reduced by value - defense
+        // defense < value < defense + garrison: defense -> 0, garrison reduced by the rest
         val t2 = pair(); m = t2.first; a = t2.second; b = t2.third
         a.units = 8.0
         m.send(a, b); runUntilIdle(m)
@@ -61,7 +61,7 @@ class GameModelTest {
         assertEquals(2.0, b.units, 1e-9)
         assertEquals(Fraction.NEUTRAL, b.fraction)
 
-        // value >= defense + garrison: capture, garrison = value - (defense + garrison)
+        // value >= defense + garrison (10): capture, garrison = value - 10, defense resets to 7
         val t3 = pair(); m = t3.first; a = t3.second; b = t3.third
         a.units = 12.0
         m.send(a, b); runUntilIdle(m)
@@ -69,6 +69,20 @@ class GameModelTest {
         assertEquals(PlanetType.NORMAL, b.type)
         assertEquals(2.0, b.units, 1e-9)
         assertEquals(7.0, b.defense, 1e-9)
+    }
+
+    @Test
+    fun exactlyTenUnitsTakeAFreshNeutralPlanet() {
+        val (m, a, b) = pair()
+        a.units = 10.0
+        m.send(a, b); runUntilIdle(m)
+        assertEquals(Fraction.GREEN, b.fraction)
+        assertEquals(0.0, b.units, 1e-9)
+
+        val (m2, a2, b2) = pair()
+        a2.units = 9.0
+        m2.send(a2, b2); runUntilIdle(m2)
+        assertEquals(Fraction.NEUTRAL, b2.fraction) // 9 is one short
     }
 
     @Test
@@ -189,7 +203,7 @@ class GameModelTest {
         p.units = 25.0
         assertTrue(m.upgrade(p, PlanetType.DEFENSIVE))
         assertEquals(15.0, p.units, 1e-9)
-        assertEquals(14.0, p.defense, 1e-9) // capped
+        assertEquals(14.0, p.defense, 1e-9) // 7 + 10 = 17, capped at the defensive max of 14
         assertFalse(m.upgrade(p, PlanetType.DEFENSIVE)) // already that type
         assertTrue(m.upgrade(p, PlanetType.ECONOMIC))
         assertEquals(5.0, p.units, 1e-9)
@@ -271,10 +285,55 @@ class GameModelTest {
         val (m, a, b) = pair(Fraction.GREEN, Fraction.NEUTRAL)
         val l = a.links.single()
         assertFalse(l.isSolid)
-        a.units = 12.0
+        a.units = 16.0
         m.send(a, b); runUntilIdle(m)
         assertTrue(l.isSolid)
         assertEquals(Fraction.GREEN, l.solidFraction)
         assertTrue(m.drainEvents().any { it is GameEvent.LinkRecolored })
+    }
+
+    @Test
+    fun shieldRegenerationIsCappedPerType() {
+        val m = GameModel(1L); m.velocity = 1.0
+        val normal = m.addPlanet(0.1, 0.1, Fraction.GREEN)
+        val defensive = m.addPlanet(0.5, 0.1, Fraction.GREEN, PlanetType.DEFENSIVE)
+        val eco = m.addPlanet(0.9, 0.1, Fraction.GREEN, PlanetType.ECONOMIC)
+        normal.defense = 6.5; defensive.defense = 12.0
+        run(m, 600)
+        assertEquals(7.0, normal.defense, 1e-9)
+        assertEquals(14.0, defensive.defense, 1e-9)
+        assertEquals(0.0, eco.defense, 0.0) // economic planets never get a shield
+        // defensive regenerates three times as fast
+        normal.defense = 0.0; defensive.defense = 0.0
+        run(m, 60)
+        assertEquals(1.0, normal.defense, 1e-6)
+        assertEquals(3.0, defensive.defense, 1e-6)
+    }
+
+    @Test
+    fun sendUpgradeAndCaptureEmitEvents() {
+        val (m, a, b) = pair(Fraction.GREEN, Fraction.RED)
+        a.units = 30.0
+        m.upgrade(a, PlanetType.ECONOMIC) // costs 10, leaving 20 to send
+        m.send(a, b)
+        runUntilIdle(m)
+        val ev = m.drainEvents()
+        val sent = ev.filterIsInstance<GameEvent.UnitsSent>().single()
+        assertEquals(Fraction.GREEN, sent.fraction)
+        assertFalse(sent.auto)
+        assertTrue(ev.any { it is GameEvent.Upgraded && it.type == PlanetType.ECONOMIC })
+        val cap = ev.filterIsInstance<GameEvent.PlanetCaptured>().single()
+        assertEquals(Fraction.GREEN, cap.newOwner)
+        assertEquals(Fraction.RED, cap.oldOwner)
+    }
+
+    @Test
+    fun autoTargetDispatchIsFlaggedAuto() {
+        val (m, a, b) = pair(Fraction.GREEN, Fraction.GREEN)
+        a.units = 6.0
+        m.setAutoTarget(a, b)
+        run(m, 9)
+        val sent = m.drainEvents().filterIsInstance<GameEvent.UnitsSent>().single()
+        assertTrue(sent.auto)
     }
 }

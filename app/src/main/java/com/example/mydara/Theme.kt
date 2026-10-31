@@ -6,11 +6,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val MydaraColors = darkColorScheme(
-    primary = Color(0xFF2ECC40),
-    background = Color(0xFF111111),
-    surface = Color(0xFF111111),
-    onBackground = Color.White,
-    onSurface = Color.White
+    primary = Color(0xFF7EE8A2),
+    onPrimary = Color(0xFF0B2A3A),
+    background = Color(0xFF0B2A3A),
+    surface = Color(0xFF0B2A3A),
+    onBackground = Color(0xFFD4E6EE),
+    onSurface = Color(0xFFD4E6EE)
 )
 
 @Composable
