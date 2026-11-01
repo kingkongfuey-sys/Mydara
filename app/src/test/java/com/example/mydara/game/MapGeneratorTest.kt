@@ -124,4 +124,25 @@ class MapGeneratorTest {
         assertEquals(null, PathFinder.findPath(p[0], p[4]) { it !== p[3] })
         assertEquals(listOf(p[1], p[2]), PathFinder.findPath(p[0], p[2]) { it !== p[3] })
     }
+
+    @Test
+    fun linkLengthsAreVaried() {
+        val pooled = ArrayList<Double>()
+        for (size in MapSize.values()) {
+            for (seed in 1L..100L) {
+                val m = MapGenerator.generate(seed, size, 1)
+                val lens = m.links.map { it.length }
+                assertTrue(
+                    "links too uniform: $size seed=$seed",
+                    lens.max() / lens.min() >= 1.25
+                )
+                if (size != MapSize.SMALL) pooled += lens
+            }
+        }
+        val mean = pooled.average()
+        val sd = kotlin.math.sqrt(pooled.sumOf { (it - mean) * (it - mean) } / pooled.size)
+        assertTrue("spread too small: ${sd / mean}", sd / mean >= 0.15)
+        assertTrue("no short links", pooled.min() < 0.16)
+        assertTrue("no long links", pooled.max() > 0.28)
+    }
 }
