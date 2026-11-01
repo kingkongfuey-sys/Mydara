@@ -525,4 +525,27 @@ class UiLogicTest {
         s.closeMenu()
         assertTrue(s.model.paused)
     }
+
+    // ------------------------------------------------------------------ background stars
+
+    @Test
+    fun starsFillTheGivenViewEvenOutsideTheMap() {
+        val sf = StarField(3L, 1.0, 1.6, MapSize.MEDIUM)
+        for (f in 1L..600L) sf.step(f, -3.0, -5.0, 4.0, 6.0)
+        assertTrue(sf.stars.isNotEmpty())
+        assertTrue(sf.stars.any { it.x < 0.0 || it.x > 1.0 || it.y < 0.0 || it.y > 1.6 })
+        assertTrue(sf.stars.all { it.x in -3.0..4.0 && it.y in -5.0..6.0 })
+        assertTrue(sf.stars.size <= StarField.MAX_STARS)
+    }
+
+    @Test
+    fun zoomedOutSessionHasStarsBeyondTheMapEdges() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.camera.resize(1000.0, 1600.0)
+        s.camera.zoomAt(0.001, 500.0, 800.0) // as far out as allowed
+        for (i in 0 until 900) s.advance(1.0 / 60.0, i * 16L)
+        val w = s.model.mapWidth
+        val h = s.model.mapHeight
+        assertTrue(s.stars.stars.any { it.x < 0.0 || it.x > w || it.y < 0.0 || it.y > h })
+    }
 }
