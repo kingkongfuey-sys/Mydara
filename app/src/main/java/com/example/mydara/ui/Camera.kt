@@ -66,6 +66,9 @@ class Camera(
     private val centerSy: Double get() = insetTop + usableH / 2
 
     fun resize(w: Double, h: Double, topInsetPx: Double = 0.0, bottomInsetPx: Double = 0.0) {
+        // A 0 x 0 layout pass (window transitions, split screen) would make the zoom NaN for good: every
+        // later clamp keeps NaN, the map disappears and can no longer be panned.
+        if (!(w > 0.0 && h > 0.0)) return
         viewW = w
         viewH = h
         insetTop = topInsetPx
@@ -107,6 +110,7 @@ class Camera(
     }
 
     fun zoomAt(factor: Double, focalX: Double, focalY: Double) {
+        if (!(factor > 0.0 && factor.isFinite())) return
         val wx = toWorldX(focalX)
         val wy = toWorldY(focalY)
         zoom = (zoom * factor).coerceIn(minZoom, maxZoomEffective)

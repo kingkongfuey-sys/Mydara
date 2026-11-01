@@ -116,13 +116,58 @@ class UiLogicTest {
     }
 
     @Test
-    fun tapLinkedPlanetSendsAllAndKeepsSelection() {
+    fun tapLinkedPlanetSendsAllAndDeselectsTheSender() {
         val r = Rig()
         r.tap(r.a, 0)
         r.tap(r.b, 200)
         assertEquals(1, r.model.batches.size)
         assertEquals(7, r.model.batches[0].value)
+        assertNull(r.input.selected)
+    }
+
+    @Test
+    fun sendThatCannotHappenKeepsTheSelection() {
+        val r = Rig()
+        r.a.units = 0.0 // nothing to send
+        r.tap(r.a, 0)
+        r.tap(r.b, 200)
+        assertTrue(r.model.batches.isEmpty())
         assertTrue(r.input.selected === r.a)
+    }
+
+    @Test
+    fun lostFingerIsDroppedSoTapsWorkAgain() {
+        val r = Rig()
+        r.input.pointerDown(1, 100.0, 1400.0, 0) // the "up" for this finger is never delivered
+        r.input.pointerDown(2, 300.0, 1400.0, 40)
+        r.input.pointerUp(2, 300.0, 1400.0, 80)
+        r.input.dropStalePointers { false } // the system reports no finger down any more
+        assertFalse(r.camera.holding)
+        r.tap(r.a, 1000)
+        assertTrue(r.input.selected === r.a) // a plain tap works again
+    }
+
+    @Test
+    fun activePointersAreNotDropped() {
+        val r = Rig()
+        r.input.pointerDown(1, r.sx(r.a), r.sy(r.a), 0)
+        r.input.dropStalePointers { it == 1 }
+        assertTrue(r.camera.holding)
+        r.input.pointerUp(1, r.sx(r.a), r.sy(r.a), 60)
+        assertTrue(r.input.selected === r.a)
+    }
+
+    @Test
+    fun cameraIgnoresDegenerateSizeAndZoom() {
+        val cam = Camera(1.0, 1.6, 2.1)
+        cam.resize(1000.0, 1600.0)
+        val zoom = cam.zoom
+        cam.resize(0.0, 0.0)
+        cam.zoomAt(Double.NaN, 500.0, 800.0)
+        cam.zoomAt(0.0, 500.0, 800.0)
+        assertEquals(zoom, cam.zoom, 0.0)
+        assertTrue(cam.cx.isFinite() && cam.cy.isFinite())
+        assertEquals(0.5, cam.toWorldX(500.0), 1e-9)
     }
 
     @Test
@@ -148,6 +193,7 @@ class UiLogicTest {
         r.tap(r.b, 800)
         assertEquals(3, r.model.batches.single().value) // 7 / 2
         assertFalse(r.input.halved)
+        assertNull(r.input.selected) // the half-send also deselects the sender
     }
 
     @Test
@@ -328,7 +374,22 @@ class UiLogicTest {
         assertTrue(s.hudState().canAffordUpgrade)
         s.upgradeSelected(com.example.mydara.game.PlanetType.DEFENSIVE)
         assertEquals(com.example.mydara.game.PlanetType.DEFENSIVE, own.type)
-        assertEquals(com.example.mydara.game.PlanetType.DEFENSIVE, s.hudState().selectedType)
+        // a successful upgrade deselects the planet, which also hides the upgrade buttons
+        assertNull(s.input.selected)
+        assertNull(s.hudState().selectedType)
+    }
+
+    @Test
+    fun failedUpgradeKeepsThePlanetSelected() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        val own = s.model.planetsOf(Fraction.PLAYER).single()
+        s.camera.resize(1000.0, 1600.0)
+        own.units = 4.0 // cannot afford the 10-unit upgrade
+        s.input.pointerDown(1, s.camera.toScreenX(own.x), s.camera.toScreenY(own.y), 0)
+        s.input.pointerUp(1, s.camera.toScreenX(own.x), s.camera.toScreenY(own.y), 50)
+        s.upgradeSelected(com.example.mydara.game.PlanetType.ECONOMIC)
+        assertEquals(com.example.mydara.game.PlanetType.NORMAL, own.type)
+        assertTrue(s.input.selected === own)
     }
 
     @Test

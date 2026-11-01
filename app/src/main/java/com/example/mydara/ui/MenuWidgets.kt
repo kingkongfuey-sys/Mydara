@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -44,6 +45,18 @@ import androidx.compose.ui.unit.sp
 private val GroundShades = listOf(Color(0xFF14506A), Color(0xFF0F5C73), Color(0xFF1A4A78))
 internal val PanelColor = Color(0xFF123A4E)
 internal val AccentGreen = Color(0xFF7EE8A2)
+
+/**
+ * Makes a full-screen overlay "solid" for touches: a finger that lands on it never reaches the game drawn
+ * underneath (hit-testing stops at the topmost sibling that has pointer input).
+ *
+ * It deliberately does NOT consume the events. A parent that consumes in the Main pass runs after its
+ * children, and a child's tap detector re-checks in the Final pass whether anyone consumed the event,
+ * so any finger jitter between down and up would cancel the tap on every button inside the overlay.
+ */
+internal fun Modifier.blockTouchesBehind(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope { while (true) awaitPointerEvent() }
+}
 
 /** Calm drifting translucent cells behind every menu screen. */
 @Composable

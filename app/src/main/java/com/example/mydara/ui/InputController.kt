@@ -13,7 +13,7 @@ import kotlin.math.max
  * Gesture state machine (no Compose imports). The UI forwards raw pointer events; all disambiguation of
  * tap / long-press / auto-target swipe / pan / pinch lives here.
  *
- * Rules: tap own planet = select; tap linked planet with a selection = send all; long-press own planet
+ * Rules: tap own planet = select; tap linked planet with a selection = send all (and deselect); long-press own planet
  * (500 ms, < 0.05 movement) = halved mode, then tap linked = send half; swipe from own planet toward a
  * linked planet (> 2 radii, released within 900 ms, within 45 degrees) = auto-target; drag from empty
  * space / enemy / neutral planet = pan; two fingers = pinch zoom and block taps and swipes.
@@ -137,6 +137,7 @@ class InputController(
             nowMs - downT >= LONG_PRESS_MS && !model.isOver
         ) {
             val p = downPlanet ?: return
+            if (p.fraction != player) return // lost to an enemy while the finger was held down
             longFired = true
             selected = p
             halved = true
@@ -236,7 +237,9 @@ class InputController(
             return
         }
         if (sel != null && p !== sel && sel.isLinkedTo(p)) {
-            if (model.send(sel, p, halved)) halved = false
+            // A successful send ends the command: the sending planet is deselected. If nothing could be
+            // sent (empty garrison) the selection stays so the player can see why.
+            if (model.send(sel, p, halved)) deselect()
             return
         }
         if (p.fraction == player) {
@@ -254,9 +257,26 @@ class InputController(
         halved = false
     }
 
-    private fun deselect() {
+    /** Clears the selection and the half-send mode (after a send or an upgrade, or when the planet is lost). */
+    fun deselect() {
         selected = null
         halved = false
+    }
+
+    /** Forgets every finger and ends the current gesture. */
+    fun cancelGestures() {
+        pointers.clear()
+        endGesture()
+    }
+
+    /**
+     * Safety net for lost "up" events (a cancelled gesture, the app losing focus mid-touch). A finger the
+     * system no longer reports would otherwise stay in [pointers] forever: every later touch would count as
+     * a two-finger pinch, so taps and single-finger pans would never work again.
+     */
+    fun dropStalePointers(isActive: (Int) -> Boolean) {
+        if (pointers.isEmpty()) return
+        if (pointers.keys.any { !isActive(it) }) cancelGestures()
     }
 
     private fun hitPlanet(wx: Double, wy: Double): Planet? {

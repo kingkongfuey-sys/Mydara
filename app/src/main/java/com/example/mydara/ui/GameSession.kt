@@ -91,9 +91,10 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         return best
     }
 
+    /** Upgrades the selected own planet; on success it is deselected (an unaffordable upgrade keeps it selected). */
     fun upgradeSelected(type: PlanetType) {
         val p = input.selected ?: return
-        if (p.fraction == Fraction.PLAYER) model.upgrade(p, type)
+        if (p.fraction == Fraction.PLAYER && model.upgrade(p, type)) input.deselect()
     }
 
     fun hudState(): HudState {

@@ -45,8 +45,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.changedToDown
-import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -155,13 +155,20 @@ fun GameScreen(
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
+                            // Drop fingers the system no longer reports (a lost "up"), which would
+                            // otherwise leave the input stuck in pinch mode.
+                            session.input.dropStalePointers { id ->
+                                event.changes.any { it.id.value.toInt() == id && (it.pressed || it.previousPressed) }
+                            }
                             for (c in event.changes) {
                                 val id = c.id.value.toInt()
                                 val x = c.position.x.toDouble()
                                 val y = c.position.y.toDouble()
                                 when {
-                                    c.changedToDown() -> session.input.pointerDown(id, x, y, c.uptimeMillis)
-                                    c.changedToUp() -> session.input.pointerUp(id, x, y, c.uptimeMillis)
+                                    c.changedToDownIgnoreConsumed() ->
+                                        session.input.pointerDown(id, x, y, c.uptimeMillis)
+                                    c.changedToUpIgnoreConsumed() ->
+                                        session.input.pointerUp(id, x, y, c.uptimeMillis)
                                     c.pressed -> session.input.pointerMove(id, x, y, c.uptimeMillis)
                                 }
                                 c.consume()
@@ -377,11 +384,7 @@ private fun ResultOverlay(outcome: Outcome, onNewMap: () -> Unit, onBackToSetup:
         Modifier
             .fillMaxSize()
             .background(BackgroundColor.copy(alpha = 0.85f))
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) awaitPointerEvent().changes.forEach { it.consume() }
-                }
-            },
+            .blockTouchesBehind(), // consuming here would cancel the buttons' taps
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
