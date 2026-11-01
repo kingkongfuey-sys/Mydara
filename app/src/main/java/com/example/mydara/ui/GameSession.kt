@@ -34,7 +34,8 @@ data class HudState(
     val halved: Boolean,
     val paused: Boolean,
     val velocityIndex: Int,
-    val outcome: Outcome
+    val outcome: Outcome,
+    val menuOpen: Boolean
 )
 
 /**
@@ -71,8 +72,32 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
 
     // ------------------------------------------------------------------ commands from the HUD
 
+    /** The pause icon. Ignored while the pause menu is open: the menu owns the paused flag then. */
     fun togglePause() {
+        if (menuOpen) return
         model.paused = !model.paused
+    }
+
+    /** True while the full-page pause menu is shown. */
+    var menuOpen: Boolean = false
+        private set
+    private var pausedBeforeMenu = false
+
+    /** Opens the pause menu and freezes the game. Calling it again while open changes nothing. */
+    fun openMenu() {
+        if (menuOpen) return
+        pausedBeforeMenu = model.paused
+        model.paused = true
+        menuOpen = true
+        input.cancelGestures() // a finger that was down when the menu opened must not act later
+    }
+
+    /** Closes the pause menu; the game goes back to whatever pause state it had before the menu. */
+    fun closeMenu() {
+        if (!menuOpen) return
+        model.paused = pausedBeforeMenu
+        menuOpen = false
+        input.cancelGestures()
     }
 
     fun setVelocityIndex(index: Int) {
@@ -105,7 +130,8 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
             halved = input.halved,
             paused = model.paused,
             velocityIndex = velocityIndex(),
-            outcome = model.outcome
+            outcome = model.outcome,
+            menuOpen = menuOpen
         )
     }
 

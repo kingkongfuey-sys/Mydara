@@ -36,10 +36,9 @@ fun PauseMenu(
         Modifier
             .fillMaxSize()
             .background(BackgroundColor)
-            // nothing may reach the game underneath (without consuming: that would cancel the buttons' taps)
-            .blockTouchesBehind()
     ) {
         AnimatedGround()
+        TouchScrim() // nothing may reach the game underneath
         Column(
             Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

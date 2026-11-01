@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,15 +48,14 @@ internal val PanelColor = Color(0xFF123A4E)
 internal val AccentGreen = Color(0xFF7EE8A2)
 
 /**
- * Makes a full-screen overlay "solid" for touches: a finger that lands on it never reaches the game drawn
- * underneath (hit-testing stops at the topmost sibling that has pointer input).
- *
- * It deliberately does NOT consume the events. A parent that consumes in the Main pass runs after its
- * children, and a child's tap detector re-checks in the Final pass whether anyone consumed the event,
- * so any finger jitter between down and up would cancel the tap on every button inside the overlay.
+ * Invisible full-size layer to place as the FIRST child of a full-screen overlay, underneath its buttons.
+ * Touches that miss every button land here instead of reaching the game below. It is a sibling of the
+ * buttons (not their parent), so it can never cancel or steal a button tap, and it is hit-tested only
+ * where no button sits on top of it.
  */
-internal fun Modifier.blockTouchesBehind(): Modifier = pointerInput(Unit) {
-    awaitPointerEventScope { while (true) awaitPointerEvent() }
+@Composable
+internal fun TouchScrim() {
+    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } })
 }
 
 /** Calm drifting translucent cells behind every menu screen. */

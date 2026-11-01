@@ -87,8 +87,6 @@ fun GameScreen(
     var frameTick by remember(session) { mutableIntStateOf(0) }
     var hud by remember(session) { mutableStateOf(session.hudState()) }
     var speedOpen by remember(session) { mutableStateOf(false) }
-    var menuOpen by remember(session) { mutableStateOf(false) }
-    var pausedBeforeMenu by remember(session) { mutableStateOf(false) }
     val paint = remember {
         Paint().apply {
             isAntiAlias = true
@@ -97,21 +95,24 @@ fun GameScreen(
         }
     }
 
+    // The menu state lives in the session (pure, unit-tested); the HUD snapshot is refreshed right away so
+    // the overlay appears / disappears on the very next composition, not one frame later.
     fun openMenu() {
-        pausedBeforeMenu = session.model.paused
-        session.model.paused = true
-        menuOpen = true
+        session.openMenu()
+        hud = session.hudState()
     }
 
     fun closeMenu() {
-        session.model.paused = pausedBeforeMenu
-        menuOpen = false
+        session.closeMenu()
+        hud = session.hudState()
     }
+
+    val overlayActive = hud.menuOpen || hud.outcome != Outcome.PLAYING
 
     BackHandler {
         when {
             hud.outcome != Outcome.PLAYING -> onBackToSetup()
-            menuOpen -> closeMenu()
+            hud.menuOpen -> closeMenu()
             else -> openMenu()
         }
     }
@@ -151,7 +152,13 @@ fun GameScreen(
                 .onSizeChanged {
                     session.camera.resize(it.width.toDouble(), it.height.toDouble(), topInsetPx, bottomInsetPx)
                 }
-                .pointerInput(session) {
+                // While an overlay (pause menu / result) is up the game gets no touches at all, so the
+                // overlay never depends on hit-testing tricks to keep the game underneath quiet.
+                .pointerInput(session, overlayActive) {
+                    if (overlayActive) {
+                        session.input.cancelGestures()
+                        return@pointerInput
+                    }
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
@@ -224,7 +231,7 @@ fun GameScreen(
 
         if (hud.outcome != Outcome.PLAYING) {
             ResultOverlay(hud.outcome, onNewMap = onRegenerate, onBackToSetup = onBackToSetup)
-        } else if (menuOpen) {
+        } else if (hud.menuOpen) {
             PauseMenu(
                 onResume = { closeMenu() },
                 onRestart = { onRestart(session.seed) },
@@ -383,10 +390,10 @@ private fun ResultOverlay(outcome: Outcome, onNewMap: () -> Unit, onBackToSetup:
     Box(
         Modifier
             .fillMaxSize()
-            .background(BackgroundColor.copy(alpha = 0.85f))
-            .blockTouchesBehind(), // consuming here would cancel the buttons' taps
+            .background(BackgroundColor.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center
     ) {
+        TouchScrim()
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
                 if (outcome == Outcome.VICTORY) "Victory" else "Defeat",
