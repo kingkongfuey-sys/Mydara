@@ -219,6 +219,30 @@ class UiLogicTest {
     }
 
     @Test
+    fun swipeAutoTargetDeselectsAPreviouslySelectedPlanet() {
+        val r = Rig()
+        r.tap(r.a, 0)
+        assertTrue(r.input.selected === r.a)
+        r.input.pointerDown(1, r.sx(r.a), r.sy(r.a), 1000)
+        r.input.pointerMove(1, r.sxw(0.42), r.syw(0.3), 1150)
+        r.input.pointerUp(1, r.sxw(0.42), r.syw(0.3), 1300)
+        assertTrue(r.a.autoTarget === r.b)
+        assertNull(r.input.selected)
+        assertFalse(r.input.halved)
+    }
+
+    @Test
+    fun failedSwipeKeepsTheSelection() {
+        val r = Rig()
+        r.tap(r.a, 0)
+        r.input.pointerDown(1, r.sx(r.a), r.sy(r.a), 1000)
+        r.input.pointerMove(1, r.sxw(0.3), r.syw(0.45), 1100) // straight down, link points right
+        r.input.pointerUp(1, r.sxw(0.3), r.syw(0.45), 1200)
+        assertNull(r.a.autoTarget)
+        assertTrue(r.input.selected === r.a)
+    }
+
+    @Test
     fun slowOrOffAngleSwipeDoesNothing() {
         val slow = Rig()
         slow.input.pointerDown(1, slow.sx(slow.a), slow.sy(slow.a), 0)

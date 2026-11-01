@@ -31,7 +31,8 @@ class AndroidFeedback(context: Context, private val view: View) : FeedbackSink {
     init {
         pool.setOnLoadCompleteListener { _, sampleId, status -> if (status == 0) ready.add(sampleId) }
         for ((sfx, wav) in SfxSynth.all()) {
-            val file = File(context.cacheDir, "sfx_${sfx.name.lowercase()}.wav")
+            // The version in the name makes a changed synth replace the files cached by an older build.
+            val file = File(context.cacheDir, "sfx_v${SFX_VERSION}_${sfx.name.lowercase()}.wav")
             if (!file.exists() || file.length() != wav.size.toLong()) file.writeBytes(wav)
             ids[sfx] = pool.load(file.absolutePath, 1)
         }
@@ -59,6 +60,11 @@ class AndroidFeedback(context: Context, private val view: View) : FeedbackSink {
 
     fun release() {
         pool.release()
+    }
+
+    private companion object {
+        /** Bump whenever [SfxSynth] changes. */
+        const val SFX_VERSION = 2
     }
 }
 

@@ -53,6 +53,38 @@ class FeedbackTest {
     }
 
     @Test
+    fun effectsAreDeterministicDistinctAndEndWithoutAClick() {
+        val all = Sfx.values().associateWith { SfxSynth.samples(it) }
+        for ((sfx, pcm) in all) {
+            assertTrue("$sfx is not reproducible", pcm.contentEquals(SfxSynth.samples(sfx)))
+            val tail = pcm.takeLast(4).maxOf { Math.abs(it.toInt()) }
+            assertTrue("$sfx ends abruptly ($tail)", tail < 800)
+        }
+        val list = all.values.toList()
+        for (i in list.indices) for (j in i + 1 until list.size) {
+            assertFalse("two effects are identical", list[i].contentEquals(list[j]))
+        }
+    }
+
+    @Test
+    fun repeatedSoundsVaryALittleInPitchButResultsDoNot() {
+        FeedbackSettings.sound = true
+        val rates = ArrayList<Pair<Sfx, Float>>()
+        val director = FeedbackDirector(Fraction.GREEN)
+        director.sink = object : FeedbackSink {
+            override fun play(sfx: Sfx, volume: Float, rate: Float) { rates += sfx to rate }
+            override fun haptic(haptic: Haptic) = Unit
+        }
+        var now = 0L
+        repeat(40) { director.nowMs = now; director.onSelect(); now += 1000 }
+        director.onOutcome(Outcome.VICTORY)
+        val ticks = rates.filter { it.first == Sfx.TICK }.map { it.second }
+        assertTrue(ticks.all { it in 0.96f..1.04f })
+        assertTrue("pitch never varies", ticks.toSet().size > 10)
+        assertEquals(1f, rates.single { it.first == Sfx.VICTORY }.second, 0f)
+    }
+
+    @Test
     fun wavFilesHaveValidHeaders() {
         for ((sfx, wav) in SfxSynth.all()) {
             assertEquals("RIFF", String(wav, 0, 4))

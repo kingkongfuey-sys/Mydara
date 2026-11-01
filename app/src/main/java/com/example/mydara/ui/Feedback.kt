@@ -36,6 +36,7 @@ class FeedbackDirector(private val player: Fraction = Fraction.PLAYER) {
     /** Real time of the current frame in ms; set by the session before each batch of events. */
     var nowMs: Long = 0L
 
+    private val rng = kotlin.random.Random(11)
     private var lastAnySfx: Long? = null
     private val lastSfx = HashMap<Sfx, Long>()
     private val lastHaptic = HashMap<Haptic, Long>()
@@ -83,7 +84,10 @@ class FeedbackDirector(private val player: Fraction = Fraction.PLAYER) {
         if (!force && any != null && nowMs - any < GLOBAL_MIN_INTERVAL_MS) return
         lastSfx[s] = nowMs
         lastAnySfx = nowMs
-        sink.play(s, volume, 1f)
+        // A few percent of random pitch per play, so repeated sounds never repeat exactly. The match
+        // results always play at their true pitch.
+        val rate = if (force) 1f else 1f + (rng.nextFloat() - 0.5f) * 2f * MAX_PITCH_VARIATION
+        sink.play(s, volume, rate)
     }
 
     private fun haptic(h: Haptic) {
@@ -107,6 +111,9 @@ class FeedbackDirector(private val player: Fraction = Fraction.PLAYER) {
 
         /** No sound at all within this window of the previous one (keeps busy moments from piling up). */
         const val GLOBAL_MIN_INTERVAL_MS = 150L
+
+        /** Playback-rate spread per sound: +-4% (about +-0.7 semitone). */
+        const val MAX_PITCH_VARIATION = 0.04f
 
         private val SFX_MIN_INTERVAL_MS = mapOf(
             Sfx.TICK to 60L, Sfx.SEND to 200L, Sfx.HIT to 700L

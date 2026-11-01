@@ -15,7 +15,7 @@ import kotlin.math.max
  *
  * Rules: tap own planet = select; tap linked planet with a selection = send all (and deselect); long-press own planet
  * (500 ms, < 0.05 movement) = halved mode, then tap linked = send half; swipe from own planet toward a
- * linked planet (> 2 radii, released within 900 ms, within 45 degrees) = auto-target; drag from empty
+ * linked planet (> 2 radii, released within 900 ms, within 45 degrees) = auto-target (and deselect); drag from empty
  * space / enemy / neutral planet = pan; two fingers = pinch zoom and block taps and swipes.
  */
 class InputController(
@@ -227,7 +227,8 @@ class InputController(
             if (diff > PI) diff = 2 * PI - diff
             if (diff < bestDiff) { bestDiff = diff; best = t }
         }
-        best?.let { model.setAutoTarget(from, it) }
+        // Setting an auto-target is a command like a send: afterwards nothing stays selected.
+        if (best != null && model.setAutoTarget(from, best)) deselect()
     }
 
     private fun tapAt(p: Planet?) {
