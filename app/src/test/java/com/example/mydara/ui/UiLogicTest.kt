@@ -463,4 +463,66 @@ class UiLogicTest {
         assertTrue(open.model.send(some.a, some.b))
         assertTrue(open.isUnitVisible(open.model.batches.last()))
     }
+
+    // ------------------------------------------------------------------ pause menu
+
+    @Test
+    fun openingTheMenuPausesAndResumeRestoresTheGame() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.openMenu()
+        assertTrue(s.menuOpen)
+        assertTrue(s.model.paused)
+        assertTrue(s.hudState().menuOpen)
+        s.closeMenu()
+        assertFalse(s.menuOpen)
+        assertFalse(s.model.paused)
+    }
+
+    @Test
+    fun resumeKeepsAGameThatWasPausedByHand() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.togglePause()
+        s.openMenu()
+        s.closeMenu()
+        assertTrue(s.model.paused) // the player had paused before opening the menu
+    }
+
+    @Test
+    fun openingTheMenuTwiceCannotLeaveTheGameFrozenAfterResume() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.openMenu()
+        s.openMenu() // must not remember "already paused"
+        s.closeMenu()
+        assertFalse(s.model.paused)
+    }
+
+    @Test
+    fun pauseIconIsIgnoredWhileTheMenuIsOpen() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.openMenu()
+        s.togglePause()
+        assertTrue(s.model.paused)
+        s.closeMenu()
+        assertFalse(s.model.paused)
+    }
+
+    @Test
+    fun gameIsFrozenWhileTheMenuIsOpen() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.openMenu()
+        val frame = s.model.frame
+        s.advance(0.5, 1000L)
+        assertEquals(frame, s.model.frame)
+        s.closeMenu()
+        s.advance(0.5, 1500L)
+        assertTrue(s.model.frame > frame)
+    }
+
+    @Test
+    fun closingTheMenuIsANoOpWhenItIsNotOpen() {
+        val s = GameSession(GameConfig(size = MapSize.SMALL, seed = 5L))
+        s.togglePause()
+        s.closeMenu()
+        assertTrue(s.model.paused)
+    }
 }
