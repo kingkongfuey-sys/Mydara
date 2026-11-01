@@ -5,11 +5,13 @@ import com.example.mydara.game.Difficulty
 import com.example.mydara.game.Fraction
 import com.example.mydara.game.GameEvent
 import com.example.mydara.game.GameModel
+import com.example.mydara.game.Link
 import com.example.mydara.game.MapGenerator
 import com.example.mydara.game.MapSize
 import com.example.mydara.game.Outcome
 import com.example.mydara.game.Planet
 import com.example.mydara.game.PlanetType
+import com.example.mydara.game.UnitBatch
 import kotlin.random.Random
 
 data class GameConfig(
@@ -45,15 +47,18 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         .also { it.velocity = UiState.velocity }
     private val ais: List<AiController> = AiController.forOpponents(model, config.difficulty)
 
-    val camera = Camera(model.mapWidth, model.mapHeight, Camera.maxZoomFor(config.size))
+    val camera = Camera(model.mapWidth, model.mapHeight, Camera.maxZoomFor(config.size), MapGenerator.MAP_MARGIN)
     val input = InputController(model, camera, Fraction.PLAYER, touchSlopPx)
     val particles = ParticleSystem(seed xor 0x5DEECE66DL)
     val stars = StarField(seed xor 0x2545F491L, model.mapWidth, model.mapHeight, config.size)
 
-    val feedback = FeedbackDirector(Fraction.PLAYER, seed)
+    val feedback = FeedbackDirector(Fraction.PLAYER)
 
-    /** Fog of war: planets the player can currently see (own planets and their neighbors). */
+    /** Fog of war: planets the player can currently see (own planets and planets one link away). */
     val visible = BooleanArray(model.planets.size) { true }
+
+    /** Links from the nearest player planet (0 = own); [UNREACHED] if none. */
+    private val hops = IntArray(model.planets.size) { UNREACHED }
 
     private var accumulator = 0.0
     private var lastSelectedId = -1
@@ -61,7 +66,7 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
     private var lastOutcome = Outcome.PLAYING
 
     init {
-        updateFog()
+        refreshFog()
     }
 
     // ------------------------------------------------------------------ commands from the HUD
@@ -119,7 +124,7 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         input.update(nowMs)
         trackSelectionFeedback()
         camera.step()
-        updateFog()
+        refreshFog()
     }
 
     internal fun stepOnce() {
@@ -128,11 +133,14 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         val events = model.drainEvents()
         for (e in events) feedback.onEvent(e)
         for (e in events) when (e) {
-            is GameEvent.UnitDied -> particles.burst(e.x, e.y, e.fraction.particleArgb)
-            is GameEvent.PlanetHit -> particles.burst(e.planet.x, e.planet.y, e.attacker.particleArgb, scale = 2.0)
-            is GameEvent.PlanetCaptured -> particles.burst(e.planet.x, e.planet.y, e.newOwner.particleArgb, scale = 2.0)
+            is GameEvent.UnitDied ->
+                if (isLinkVisible(e.link)) particles.burst(e.x, e.y, e.fraction.particleArgb)
+            is GameEvent.PlanetHit ->
+                if (isPlanetVisible(e.planet)) particles.burst(e.planet.x, e.planet.y, e.attacker.particleArgb, scale = 2.0)
+            is GameEvent.PlanetCaptured ->
+                if (isPlanetVisible(e.planet)) particles.burst(e.planet.x, e.planet.y, e.newOwner.particleArgb, scale = 2.0)
             is GameEvent.LinkRecolored ->
-                particles.alongLink(e.link, (e.link.solidFraction ?: Fraction.NEUTRAL).particleArgb)
+                if (isLinkVisible(e.link)) particles.alongLink(e.link, (e.link.solidFraction ?: Fraction.NEUTRAL).particleArgb)
             is GameEvent.UnitsSent, is GameEvent.Upgraded -> Unit
         }
         if (model.outcome != lastOutcome) {
@@ -155,13 +163,39 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         lastHalved = input.halved
     }
 
-    private fun updateFog() {
+    // ------------------------------------------------------------------ fog of war
+
+    /** Planets show their stats within one link of a player planet. */
+    fun isPlanetVisible(p: Planet): Boolean = !config.fogOfWar || hops[p.id] <= PLANET_VISION_HOPS
+
+    /** Enemy traffic is only shown while it is within two links of a player planet. */
+    fun isLinkVisible(link: Link): Boolean =
+        !config.fogOfWar || minOf(hops[link.a.id], hops[link.b.id]) <= UNIT_VISION_HOPS
+
+    fun isUnitVisible(b: UnitBatch): Boolean =
+        !config.fogOfWar || b.fraction == Fraction.PLAYER || isLinkVisible(b.link)
+
+    /** Recomputes link distances from the player's planets (breadth-first, all own planets at distance 0). */
+    internal fun refreshFog() {
         if (!config.fogOfWar) return
-        java.util.Arrays.fill(visible, false)
+        java.util.Arrays.fill(hops, UNREACHED)
+        val queue = ArrayDeque<Planet>()
         for (p in model.planets) {
-            if (p.fraction != Fraction.PLAYER) continue
-            visible[p.id] = true
-            for (l in p.links) visible[l.other(p).id] = true
+            if (p.fraction == Fraction.PLAYER) { hops[p.id] = 0; queue.addLast(p) }
         }
+        while (queue.isNotEmpty()) {
+            val cur = queue.removeFirst()
+            for (l in cur.links) {
+                val n = l.other(cur)
+                if (hops[n.id] == UNREACHED) { hops[n.id] = hops[cur.id] + 1; queue.addLast(n) }
+            }
+        }
+        for (p in model.planets) visible[p.id] = hops[p.id] <= PLANET_VISION_HOPS
+    }
+
+    companion object {
+        const val PLANET_VISION_HOPS = 1
+        const val UNIT_VISION_HOPS = 2
+        private const val UNREACHED = Int.MAX_VALUE / 2
     }
 }

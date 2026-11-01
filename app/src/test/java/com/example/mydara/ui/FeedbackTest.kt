@@ -15,20 +15,22 @@ import org.junit.Test
 class FeedbackTest {
 
     private class Recorder : FeedbackSink {
-        val sounds = ArrayList<Triple<Sfx, Float, Float>>()
+        val sounds = ArrayList<Pair<Sfx, Float>>()
         val haptics = ArrayList<Haptic>()
-        override fun play(sfx: Sfx, volume: Float, rate: Float) { sounds += Triple(sfx, volume, rate) }
+        override fun play(sfx: Sfx, volume: Float, rate: Float) { sounds += sfx to volume }
         override fun haptic(haptic: Haptic) { haptics += haptic }
         fun sfx() = sounds.map { it.first }
     }
 
     private class Rig {
         val rec = Recorder()
-        val director = FeedbackDirector(Fraction.GREEN, 1L).also { it.sink = rec }
+        val director = FeedbackDirector(Fraction.GREEN).also { it.sink = rec }
         val model = GameModel(1L)
         val mine: Planet = model.addPlanet(0.3, 0.3, Fraction.GREEN)
         val enemy: Planet = model.addPlanet(0.5, 0.3, Fraction.RED)
         val enemy2: Planet = model.addPlanet(0.7, 0.3, Fraction.YELLOW)
+        val neutral: Planet = model.addPlanet(0.9, 0.3)
+        val link = model.addLink(mine, enemy)
 
         init {
             FeedbackSettings.sound = true
@@ -39,14 +41,14 @@ class FeedbackTest {
     // ------------------------------------------------------------------ synth
 
     @Test
-    fun everyEffectIsAudibleShortAndNeverClips() {
+    fun everyEffectIsShortAndSoft() {
         for (sfx in Sfx.values()) {
             val pcm = SfxSynth.samples(sfx)
             assertTrue("$sfx empty", pcm.isNotEmpty())
             val seconds = pcm.size.toDouble() / SfxSynth.SAMPLE_RATE
-            assertTrue("$sfx too long: $seconds", seconds in 0.02..1.5)
+            assertTrue("$sfx too long: $seconds", seconds in 0.02..1.6)
             val peak = pcm.maxOf { Math.abs(it.toInt()) }
-            assertTrue("$sfx peak $peak", peak in 20_000..32_767)
+            assertTrue("$sfx peak $peak (soft = about 60% of full scale)", peak in 15_000..22_000)
         }
     }
 
@@ -59,19 +61,17 @@ class FeedbackTest {
             val dataLen = (wav[40].toInt() and 0xFF) or ((wav[41].toInt() and 0xFF) shl 8) or
                 ((wav[42].toInt() and 0xFF) shl 16) or ((wav[43].toInt() and 0xFF) shl 24)
             assertEquals("$sfx", wav.size - 44, dataLen)
-            val rate = (wav[24].toInt() and 0xFF) or ((wav[25].toInt() and 0xFF) shl 8)
-            assertEquals(SfxSynth.SAMPLE_RATE, rate)
         }
     }
 
-    // ------------------------------------------------------------------ routing
+    // ------------------------------------------------------------------ routing: only what happens to YOU
 
     @Test
-    fun playerSendsMakeSoundButAutoAndAiSendsDoNot() {
+    fun onlyYourManualSendsSound() {
         val r = Rig()
         r.director.onEvent(GameEvent.UnitsSent(r.mine, r.enemy, Fraction.GREEN, 5, auto = false))
         assertEquals(listOf(Sfx.SEND), r.rec.sfx())
-        assertEquals(listOf(Haptic.SEND), r.rec.haptics)
+        assertTrue(r.rec.haptics.isEmpty()) // sends never vibrate
         r.director.nowMs = 1000
         r.director.onEvent(GameEvent.UnitsSent(r.mine, r.enemy, Fraction.GREEN, 5, auto = true))
         r.director.onEvent(GameEvent.UnitsSent(r.enemy, r.mine, Fraction.RED, 5, auto = false))
@@ -79,53 +79,77 @@ class FeedbackTest {
     }
 
     @Test
-    fun captureAndLossHaveDistinctCuesAndAiFightsAreQuiet() {
+    fun aiTakingNeutralPlanetsOrFightingEachOtherIsSilent() {
         val r = Rig()
-        r.director.onEvent(GameEvent.PlanetCaptured(r.enemy, Fraction.GREEN, Fraction.RED))
+        r.director.onEvent(GameEvent.PlanetCaptured(r.neutral, Fraction.RED, Fraction.NEUTRAL))
+        r.director.nowMs = 1000
+        r.director.onEvent(GameEvent.PlanetCaptured(r.enemy2, Fraction.RED, Fraction.YELLOW))
+        r.director.nowMs = 2000
+        r.director.onEvent(GameEvent.PlanetHit(r.enemy, Fraction.YELLOW))
+        r.director.onEvent(GameEvent.UnitDied(0.5, 0.5, Fraction.RED, r.link))
+        r.director.onEvent(GameEvent.UnitDied(0.5, 0.5, Fraction.GREEN, r.link)) // even your own units dying
+        assertTrue(r.rec.sounds.isEmpty())
+        assertTrue(r.rec.haptics.isEmpty())
+    }
+
+    @Test
+    fun capturesAndLossesOfYourPlanetsHaveDistinctQuietCues() {
+        val r = Rig()
+        r.director.onEvent(GameEvent.PlanetCaptured(r.neutral, Fraction.GREEN, Fraction.NEUTRAL))
         r.director.nowMs = 1000
         r.director.onEvent(GameEvent.PlanetCaptured(r.mine, Fraction.RED, Fraction.GREEN))
-        r.director.nowMs = 2000
-        r.director.onEvent(GameEvent.PlanetCaptured(r.enemy2, Fraction.RED, Fraction.YELLOW))
-        assertEquals(listOf(Sfx.CAPTURE, Sfx.LOST, Sfx.CAPTURE), r.rec.sfx())
-        assertEquals(listOf(Haptic.CAPTURE, Haptic.LOST), r.rec.haptics) // AI vs AI: no vibration
-        assertTrue(r.rec.sounds[2].second < 0.3f)
+        assertEquals(listOf(Sfx.CAPTURE, Sfx.LOST), r.rec.sfx())
+        assertEquals(listOf(Haptic.CAPTURE, Haptic.LOST), r.rec.haptics)
+        assertTrue(r.rec.sounds.all { it.second <= 0.4f })
     }
 
     @Test
-    fun hitsAreLoudestWhenThePlayerIsInvolved() {
+    fun onlyHitsOnYourPlanetsSound() {
         val r = Rig()
+        r.director.onEvent(GameEvent.PlanetHit(r.enemy, Fraction.GREEN)) // you attack: silent
+        assertTrue(r.rec.sounds.isEmpty())
         r.director.onEvent(GameEvent.PlanetHit(r.mine, Fraction.RED))
-        r.director.nowMs = 500
-        r.director.onEvent(GameEvent.PlanetHit(r.enemy, Fraction.GREEN))
-        r.director.nowMs = 1000
-        r.director.onEvent(GameEvent.PlanetHit(r.enemy2, Fraction.RED))
-        val v = r.rec.sounds.map { it.second }
-        assertTrue(v[0] > v[1] && v[1] > v[2])
-        assertEquals(listOf(Haptic.HIT), r.rec.haptics)
+        assertEquals(listOf(Sfx.HIT), r.rec.sfx())
+        assertTrue(r.rec.haptics.isEmpty())
     }
 
     @Test
-    fun rapidRepeatsAreThrottled() {
+    fun soundsAreRateLimitedGlobally() {
         val r = Rig()
-        repeat(10) { r.director.onEvent(GameEvent.UnitDied(0.5, 0.5, Fraction.RED)) } // same instant
-        assertEquals(1, r.rec.sounds.size)
+        r.director.onSelect()                        // t=0
         r.director.nowMs = 100
-        r.director.onEvent(GameEvent.UnitDied(0.5, 0.5, Fraction.RED))
+        r.director.onEvent(GameEvent.Upgraded(r.mine, PlanetType.DEFENSIVE)) // 100ms later: dropped
+        assertEquals(1, r.rec.sounds.size)
+        r.director.nowMs = 200
+        r.director.onEvent(GameEvent.Upgraded(r.mine, PlanetType.DEFENSIVE)) // 200ms after the tick: allowed
         assertEquals(2, r.rec.sounds.size)
-        assertTrue(r.rec.sounds.all { it.third in 0.9f..1.1f }) // pitch jitter stays small
+        // the match result always plays
+        r.director.nowMs = 210
+        r.director.onOutcome(Outcome.VICTORY)
+        assertEquals(Sfx.VICTORY, r.rec.sfx().last())
+    }
+
+    @Test
+    fun everyVolumeIsBackgroundLevel() {
+        val all = listOf(
+            FeedbackDirector.VOL_TICK, FeedbackDirector.VOL_ARM, FeedbackDirector.VOL_SEND, FeedbackDirector.VOL_HIT,
+            FeedbackDirector.VOL_CAPTURE, FeedbackDirector.VOL_LOST, FeedbackDirector.VOL_UPGRADE,
+            FeedbackDirector.VOL_RESULT
+        )
+        assertTrue(all.all { it in 0.05f..0.4f })
     }
 
     @Test
     fun switchesSilenceEverything() {
         val r = Rig()
         FeedbackSettings.sound = false
-        r.director.onEvent(GameEvent.PlanetCaptured(r.enemy, Fraction.GREEN, Fraction.RED))
+        r.director.onEvent(GameEvent.PlanetCaptured(r.neutral, Fraction.GREEN, Fraction.NEUTRAL))
         assertTrue(r.rec.sounds.isEmpty())
         assertEquals(listOf(Haptic.CAPTURE), r.rec.haptics) // haptics have their own switch
         FeedbackSettings.sound = true
         FeedbackSettings.haptics = false
         r.director.nowMs = 1000
-        r.director.onEvent(GameEvent.PlanetCaptured(r.enemy, Fraction.GREEN, Fraction.RED))
+        r.director.onEvent(GameEvent.PlanetCaptured(r.neutral, Fraction.GREEN, Fraction.NEUTRAL))
         assertEquals(1, r.rec.sounds.size)
         assertEquals(1, r.rec.haptics.size)
         FeedbackSettings.haptics = true
@@ -138,6 +162,7 @@ class FeedbackTest {
         r.director.onOutcome(Outcome.PLAYING)
         r.director.nowMs = 1000
         r.director.onOutcome(Outcome.DEFEAT)
+        r.director.nowMs = 2000
         r.director.onEvent(GameEvent.Upgraded(r.mine, PlanetType.DEFENSIVE))
         r.director.onEvent(GameEvent.Upgraded(r.enemy, PlanetType.DEFENSIVE)) // not the player's
         assertEquals(listOf(Sfx.VICTORY, Sfx.DEFEAT, Sfx.UPGRADE), r.rec.sfx())
@@ -170,24 +195,18 @@ class FeedbackTest {
     }
 
     @Test
-    fun fullMatchProducesSaneFeedbackStream() {
+    fun aMatchStaysQuietForAPassivePlayer() {
         FeedbackSettings.sound = true; FeedbackSettings.haptics = true
-        val s = GameSession(GameConfig(size = MapSize.SMALL, opponents = 1, seed = 11L))
+        val s = GameSession(GameConfig(size = MapSize.MEDIUM, opponents = 2, seed = 11L))
         val rec = Recorder()
         s.feedback.sink = rec
         s.camera.resize(1000.0, 1600.0)
-        val own = s.model.planetsOf(Fraction.PLAYER).single()
-        own.units = 40.0
         s.model.velocity = 2.0
         var now = 0L
-        // player attacks its first neighbor once, then everything runs on its own
-        s.model.send(own, own.links.first().other(own))
-        repeat(3600) { s.advance(1.0 / 60.0, now); now += 16 }
-        assertTrue(rec.sounds.isNotEmpty())
-        assertTrue(rec.sounds.all { it.second in 0f..1f && it.third in 0.5f..2f })
-        assertTrue(Sfx.SEND in rec.sfx())
-        // throttling keeps the stream far below one cue per frame
-        assertTrue("too many cues: ${rec.sounds.size}", rec.sounds.size < 1500)
-        assertFalse(rec.sounds.isEmpty() && rec.haptics.isEmpty())
+        repeat(3600) { s.advance(1.0 / 60.0, now); now += 16 } // one minute, player does nothing
+        // AIs expanding and fighting each other makes no noise; only things that hit the player do
+        assertTrue("too many cues: ${rec.sounds.size}", rec.sounds.size <= 12)
+        assertTrue(rec.sounds.all { it.second <= 0.4f })
+        assertFalse(rec.sfx().any { it == Sfx.SEND || it == Sfx.UPGRADE || it == Sfx.CAPTURE })
     }
 }

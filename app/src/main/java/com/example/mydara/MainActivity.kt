@@ -36,7 +36,7 @@ private sealed interface Screen {
     data class Game(val config: GameConfig, val round: Int) : Screen
 }
 
-/** Menu -> Setup -> Game -> (result) -> Setup. System back goes one step up; there is no quit button. */
+/** Menu -> Setup -> Game. System back goes one step up (in a game it opens the pause menu); no quit button. */
 @Composable
 private fun MydaraApp() {
     var screen by remember { mutableStateOf<Screen>(Screen.Menu) }
@@ -65,9 +65,23 @@ private fun MydaraApp() {
             SettingsScreen(onBack = { screen = Screen.Menu })
         }
         is Screen.Game -> {
-            BackHandler { screen = Screen.Setup }
+            // The in-game menu handles back itself (it opens / closes the pause menu).
             key(s.round) {
-                GameScreen(config = s.config, onExit = { screen = Screen.Setup })
+                GameScreen(
+                    config = s.config,
+                    onBackToSetup = { screen = Screen.Setup },
+                    onExitToMenu = { screen = Screen.Menu },
+                    // Same settings, same map (same seed)
+                    onRestart = { seed ->
+                        rounds++
+                        screen = Screen.Game(s.config.copy(seed = seed), rounds)
+                    },
+                    // Same settings, new random map
+                    onRegenerate = {
+                        rounds++
+                        screen = Screen.Game(s.config.copy(seed = null), rounds)
+                    }
+                )
             }
         }
     }

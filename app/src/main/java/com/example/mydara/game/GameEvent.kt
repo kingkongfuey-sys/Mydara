@@ -3,7 +3,7 @@ package com.example.mydara.game
 /** One-shot notifications for the UI layer (particles, sounds later). Drain with GameModel.drainEvents(). */
 sealed class GameEvent {
     /** A batch died on a link. */
-    data class UnitDied(val x: Double, val y: Double, val fraction: Fraction) : GameEvent()
+    data class UnitDied(val x: Double, val y: Double, val fraction: Fraction, val link: Link) : GameEvent()
 
     /** A hostile batch hit a planet. */
     data class PlanetHit(val planet: Planet, val attacker: Fraction) : GameEvent()

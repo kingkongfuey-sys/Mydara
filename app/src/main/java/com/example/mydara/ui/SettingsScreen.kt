@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Minimal settings: sound + haptics, app version and the credit line.
+ * Minimal settings: sound + haptics and the app version.
  * FUTURE: colorblind palette, lock camera, spectate-after-victory, palette / theme switcher.
  */
 @Composable
@@ -54,11 +54,6 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Mydara $version", color = IconFill, fontSize = 16.sp)
-                Text(
-                    "Gameplay modeled on Opacha-mda, original by yiotro.",
-                    color = IconFill.copy(alpha = 0.65f),
-                    fontSize = 12.sp
-                )
             }
         }
     }

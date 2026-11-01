@@ -37,10 +37,10 @@ class MapGeneratorTest {
 
     @Test
     fun planetCountsMatchSizes() {
-        assertEquals(8, MapGenerator.generate(1L, MapSize.SMALL, 1).planets.size)
-        assertEquals(14, MapGenerator.generate(1L, MapSize.MEDIUM, 1).planets.size)
-        assertEquals(22, MapGenerator.generate(1L, MapSize.LARGE, 1).planets.size)
-        assertEquals(32, MapGenerator.generate(1L, MapSize.HUGE, 1).planets.size)
+        assertEquals(10, MapGenerator.generate(1L, MapSize.SMALL, 1).planets.size)
+        assertEquals(20, MapGenerator.generate(1L, MapSize.MEDIUM, 1).planets.size)
+        assertEquals(30, MapGenerator.generate(1L, MapSize.LARGE, 1).planets.size)
+        assertEquals(50, MapGenerator.generate(1L, MapSize.HUGE, 1).planets.size)
     }
 
     @Test
@@ -59,7 +59,7 @@ class MapGeneratorTest {
             for (seed in 1L..100L) {
                 val m = MapGenerator.generate(seed, size, 3)
                 for (p in m.planets) {
-                    assertTrue(p.x >= 0 && p.x <= size.width && p.y >= 0 && p.y <= size.height)
+                    assertTrue(p.x >= 0 && p.x <= m.mapWidth && p.y >= 0 && p.y <= m.mapHeight)
                     assertTrue("max links: $size seed=$seed", p.links.size in 1..MapGenerator.MAX_LINKS)
                 }
                 for (i in m.planets.indices) for (j in i + 1 until m.planets.size) {

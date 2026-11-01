@@ -15,41 +15,36 @@ class SetupAndGroundTest {
         val s = SetupConfig()
         assertFalse(s.fogOfWar)           // fog of war defaults to off
         assertEquals(1, s.opponents)
-        assertNull(s.seed())              // empty seed = random
         assertEquals(MapSize.MEDIUM, s.size)
         assertEquals(Difficulty.NORMAL, s.difficulty)
     }
 
     @Test
-    fun seedFieldKeepsDigitsOnlyAndLimitsLength() {
-        assertEquals("1234", SetupConfig.sanitizeSeed("12a3-4"))
-        assertEquals("", SetupConfig.sanitizeSeed("abc"))
-        assertEquals(SetupConfig.MAX_SEED_DIGITS, SetupConfig.sanitizeSeed("1234567890123").length)
-        assertEquals(42L, SetupConfig(seedText = "42").seed())
-        assertNull(SetupConfig(seedText = "").seed())
-    }
-
-    @Test
-    fun setupBecomesGameConfig() {
-        val g = SetupConfig(MapSize.HUGE, 3, Difficulty.HARD, true, "777").toGameConfig()
+    fun setupBecomesGameConfigWithARandomSeed() {
+        val g = SetupConfig(MapSize.HUGE, 3, Difficulty.HARD, true).toGameConfig()
         assertEquals(MapSize.HUGE, g.size)
         assertEquals(3, g.opponents)
         assertEquals(Difficulty.HARD, g.difficulty)
         assertTrue(g.fogOfWar)
-        assertEquals(777L, g.seed)
+        assertNull(g.seed) // chosen when the match is created, never typed in
         assertEquals(3, SetupConfig(opponents = 9).toGameConfig().opponents)
         assertEquals(1, SetupConfig(opponents = 0).toGameConfig().opponents)
     }
 
     @Test
-    fun sameSeedFromSetupGivesSameMatch() {
-        val cfg = SetupConfig(MapSize.LARGE, 2, Difficulty.NORMAL, false, "4242").toGameConfig()
+    fun matchesGetDifferentRandomMapsUnlessRestarted() {
+        val cfg = SetupConfig(MapSize.LARGE, 2, Difficulty.NORMAL, false).toGameConfig()
+        val seeds = (1..5).map { GameSession(cfg).seed }.toSet()
+        assertTrue(seeds.size > 1)
+        // Restart = same settings and the same seed: identical map
         val a = GameSession(cfg)
-        val b = GameSession(cfg)
-        assertEquals(4242L, a.seed)
-        assertEquals(a.model.planets.map { it.x }, b.model.planets.map { it.x })
-        assertEquals(a.model.planets.map { it.type }, b.model.planets.map { it.type })
-        assertEquals(22, a.model.planets.size)
+        val restarted = GameSession(cfg.copy(seed = a.seed))
+        assertEquals(a.model.planets.map { it.x }, restarted.model.planets.map { it.x })
+        assertEquals(a.model.planets.map { it.fraction }, restarted.model.planets.map { it.fraction })
+        assertEquals(30, a.model.planets.size)
+        // Regenerate = same settings, new seed: a different map
+        val regenerated = GameSession(cfg.copy(seed = null))
+        assertTrue(regenerated.seed != a.seed || regenerated.model.planets.map { it.x } != a.model.planets.map { it.x })
     }
 
     @Test

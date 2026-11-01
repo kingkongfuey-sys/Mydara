@@ -14,12 +14,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import com.example.mydara.game.Fraction
-import com.example.mydara.game.MapSize
 import com.example.mydara.game.Planet
 import com.example.mydara.game.PlanetType
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sin
 
@@ -30,7 +28,7 @@ internal val InkColor = Color(0xFF0B2A3A)
 internal val IconFill = Color(0xFFD4E6EE)
 private val SparkColor = Color(0xFFCFE8F2)
 
-/** Planets are drawn smaller than their (touch/spacing) radius to match the original's look. */
+/** Planets are drawn smaller than their (touch/spacing) radius. */
 private const val VISUAL_RADIUS = 0.6
 
 internal fun fractionColor(f: Fraction): Color = Color(f.argb)
@@ -170,6 +168,7 @@ internal fun DrawScope.drawGame(s: GameSession, paint: Paint) {
     val dotR = thick * 1.5f
     val unitLabelSize = max(thick * 2.8f, baseR * 0.6f)
     for (b in model.batches) {
+        if (!s.isUnitVisible(b)) continue // fog of war: far-away enemy traffic stays hidden
         val c = Offset(px(b.x), py(b.y))
         val col = fractionColor(b.fraction)
         drawCircle(col, dotR, c)

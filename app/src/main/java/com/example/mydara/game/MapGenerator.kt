@@ -8,11 +8,15 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-enum class MapSize(val planetCount: Int) {
-    SMALL(8), MEDIUM(14), LARGE(22), HUGE(32);
+/** Map-unit area of the growth region per planet (hex-packed planets need ~0.035). */
+private const val AREA_PER_PLANET = 0.085
 
-    /** Playfield scales with planet count so planet density is the same for every size. */
-    private val scale: Double get() = sqrt(planetCount / 8.0)
+enum class MapSize(val planetCount: Int) {
+    SMALL(10), MEDIUM(20), LARGE(30), HUGE(50);
+
+    /** Growth region scales with planet count so planet density is the same for every size. */
+    private val scale: Double get() = sqrt(planetCount * AREA_PER_PLANET / 1.6)
+    /** Size of the region the layout grows in; the final playfield is cropped to the planets (see MapGenerator). */
     val width: Double get() = scale
     val height: Double get() = 1.6 * scale
 }
@@ -29,8 +33,11 @@ object MapGenerator {
     const val MAX_LINK_DISTANCE = 0.22
     const val MAX_LINKS = 4
 
+    /** Empty border (map units) around the outermost planets in the cropped playfield. */
+    const val MAP_MARGIN = 0.1
+
     private const val EDGE_MARGIN = 0.03
-    private const val CANDIDATES = 30
+    private const val CANDIDATES = 80
     private const val MAX_PLACEMENT_FAILS = 300
     private const val MAX_ATTEMPTS = 200
     private const val SPECIAL_SHARE = 0.15
@@ -50,7 +57,13 @@ object MapGenerator {
 
     // ------------------------------------------------------------------ layout
 
-    private class Layout(val xs: DoubleArray, val ys: DoubleArray, val edges: List<IntArray>)
+    private class Layout(
+        val xs: DoubleArray,
+        val ys: DoubleArray,
+        val edges: List<IntArray>,
+        val width: Double,
+        val height: Double
+    )
 
     private fun buildLayout(rng: Random, size: MapSize): Layout? {
         val n = size.planetCount
@@ -71,20 +84,46 @@ object MapGenerator {
             val ty = lo + rng.nextDouble() * (h - 2 * lo)
             var bx = 0.0
             var by = 0.0
-            var bd = Double.MAX_VALUE
+            var bestScore = -Double.MAX_VALUE
             var found = false
-            repeat(CANDIDATES) {
-                val a = rng.nextInt(count)
-                val ang = rng.nextDouble() * 2 * PI
-                val dist = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
-                val cx = xs[a] + cos(ang) * dist
-                val cy = ys[a] + sin(ang) * dist
-                if (cx < lo || cx > w - lo || cy < lo || cy > h - lo) return@repeat
-                for (k in 0 until count) {
-                    if (hypot(cx - xs[k], cy - ys[k]) < MIN_CENTER_DISTANCE) return@repeat
+            repeat(CANDIDATES) { i ->
+                var cx: Double
+                var cy: Double
+                if (i % 2 == 0) {
+                    // a site at distance 3.5..4.4 radii from one existing planet
+                    val a = rng.nextInt(count)
+                    val ang = rng.nextDouble() * 2 * PI
+                    val dist = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
+                    cx = xs[a] + cos(ang) * dist
+                    cy = ys[a] + sin(ang) * dist
+                } else {
+                    // a triangle apex: in link range of TWO nearby planets, which closes loops
+                    val a = rng.nextInt(count)
+                    val b = rng.nextInt(count)
+                    if (a == b) return@repeat
+                    val dx = xs[b] - xs[a]
+                    val dy = ys[b] - ys[a]
+                    val d = hypot(dx, dy)
+                    if (d < 0.01 || d > 2 * MAX_LINK_DISTANCE) return@repeat
+                    val r1 = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
+                    val r2 = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
+                    if (d > r1 + r2 || d < kotlin.math.abs(r1 - r2)) return@repeat
+                    val along = (r1 * r1 - r2 * r2 + d * d) / (2 * d)
+                    val off = sqrt(maxOf(0.0, r1 * r1 - along * along))
+                    val side = if (rng.nextBoolean()) 1.0 else -1.0
+                    cx = xs[a] + along * dx / d - side * off * dy / d
+                    cy = ys[a] + along * dy / d + side * off * dx / d
                 }
-                val dt = hypot(cx - tx, cy - ty)
-                if (dt < bd) { bd = dt; bx = cx; by = cy; found = true }
+                if (cx < lo || cx > w - lo || cy < lo || cy > h - lo) return@repeat
+                var neighbors = 0
+                for (k in 0 until count) {
+                    val dk = hypot(cx - xs[k], cy - ys[k])
+                    if (dk < MIN_CENTER_DISTANCE) return@repeat
+                    if (dk <= MAX_LINK_DISTANCE) neighbors++
+                }
+                // closer to the growth target is better; sites with 2-3 neighbors (lattice-like) are better still
+                val score = -hypot(cx - tx, cy - ty) + 0.1 * minOf(neighbors, 3)
+                if (score > bestScore) { bestScore = score; bx = cx; by = cy; found = true }
             }
             if (!found) {
                 if (++fails > MAX_PLACEMENT_FAILS) return null
@@ -132,7 +171,19 @@ object MapGenerator {
         }
         if (deg.any { it > MAX_LINKS }) return null
         val kept = edges.filterIndexed { i, _ -> active[i] }
-        return Layout(xs, ys, kept)
+
+        // Crop the playfield to the planets with an even margin and move everything so the map is centered
+        // in its own bounds (the camera then centers and fits exactly what exists).
+        var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
+        var minY = Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
+        for (i in 0 until n) {
+            minX = minOf(minX, xs[i]); maxX = maxOf(maxX, xs[i])
+            minY = minOf(minY, ys[i]); maxY = maxOf(maxY, ys[i])
+        }
+        val dx = MAP_MARGIN - minX
+        val dy = MAP_MARGIN - minY
+        for (i in 0 until n) { xs[i] += dx; ys[i] += dy }
+        return Layout(xs, ys, kept, (maxX - minX) + 2 * MAP_MARGIN, (maxY - minY) + 2 * MAP_MARGIN)
     }
 
     private fun isConnected(n: Int, edges: List<IntArray>, active: BooleanArray?): Boolean {
@@ -173,7 +224,7 @@ object MapGenerator {
             for (k in special until minOf(2 * special, neutrals.size)) types[neutrals[k]] = PlanetType.DEFENSIVE
         }
 
-        val model = GameModel(seed, size.width, size.height)
+        val model = GameModel(seed, layout.width, layout.height)
         for (i in 0 until n) {
             val owner = starts.indexOf(i).let { if (it >= 0) fractions[it] else Fraction.NEUTRAL }
             model.addPlanet(xs[i], ys[i], owner, types[i] ?: PlanetType.NORMAL)

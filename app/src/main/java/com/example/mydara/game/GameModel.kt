@@ -5,7 +5,7 @@ import kotlin.random.Random
 enum class Outcome { PLAYING, VICTORY, DEFEAT }
 
 /**
- * Pure-Kotlin deterministic skirmish simulation (rules modeled on Opacha-mda). No Android/Compose imports.
+ * Pure-Kotlin deterministic skirmish simulation. No Android/Compose imports.
  * Map units: mapWidth = 1.0. One [step] = one 60 fps frame; all per-frame effects are scaled by [velocity].
  */
 class GameModel(
@@ -211,16 +211,16 @@ class GameModel(
                     when {
                         x.value == y.value -> {
                             x.alive = false; y.alive = false
-                            emit(GameEvent.UnitDied(mx, my, x.fraction))
-                            emit(GameEvent.UnitDied(mx, my, y.fraction))
+                            emit(GameEvent.UnitDied(mx, my, x.fraction, link))
+                            emit(GameEvent.UnitDied(mx, my, y.fraction, link))
                         }
                         x.value > y.value -> {
                             x.value -= y.value; y.alive = false
-                            emit(GameEvent.UnitDied(mx, my, y.fraction))
+                            emit(GameEvent.UnitDied(mx, my, y.fraction, link))
                         }
                         else -> {
                             y.value -= x.value; x.alive = false
-                            emit(GameEvent.UnitDied(mx, my, x.fraction))
+                            emit(GameEvent.UnitDied(mx, my, x.fraction, link))
                         }
                     }
                 }

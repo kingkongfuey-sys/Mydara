@@ -28,18 +28,17 @@ object SfxSynth {
     private fun n(f: Double, ms: Int, vol: Double, shape: Shape = Shape.SINE) = Note(f, f, ms, vol, shape)
 
     private fun notes(sfx: Sfx): List<Note> = when (sfx) {
-        Sfx.TICK -> listOf(Note(1400.0, 1000.0, 30, 0.6))
-        Sfx.ARM -> listOf(n(700.0, 40, 0.5), n(1050.0, 70, 0.6))
-        Sfx.SEND -> listOf(Note(520.0, 920.0, 100, 0.6))
-        Sfx.UNIT_POP -> listOf(Note(760.0, 280.0, 80, 0.5, Shape.TRI, noise = 0.15))
-        Sfx.HIT -> listOf(Note(170.0, 60.0, 170, 0.9, Shape.SINE, noise = 0.25))
-        Sfx.CAPTURE -> listOf(n(523.25, 90, 0.6), n(659.25, 90, 0.6), n(783.99, 240, 0.6))
-        Sfx.LOST -> listOf(n(392.0, 130, 0.5, Shape.TRI), n(329.63, 130, 0.5, Shape.TRI), n(261.63, 320, 0.5, Shape.TRI))
-        Sfx.UPGRADE -> listOf(n(880.0, 60, 0.45), n(1318.5, 60, 0.45), n(1760.0, 160, 0.45))
-        Sfx.VICTORY -> listOf(n(523.25, 140, 0.6), n(659.25, 140, 0.6), n(783.99, 140, 0.6), n(1046.5, 420, 0.6))
+        Sfx.TICK -> listOf(Note(900.0, 700.0, 35, 0.5))
+        Sfx.ARM -> listOf(n(520.0, 50, 0.45), n(700.0, 80, 0.5))
+        Sfx.SEND -> listOf(Note(380.0, 560.0, 110, 0.5))
+        Sfx.HIT -> listOf(Note(140.0, 70.0, 200, 0.8, Shape.SINE, noise = 0.06))
+        Sfx.CAPTURE -> listOf(n(392.0, 110, 0.5), n(523.25, 110, 0.5), n(659.25, 300, 0.5))
+        Sfx.LOST -> listOf(n(293.66, 150, 0.5, Shape.TRI), n(246.94, 150, 0.5, Shape.TRI), n(196.0, 380, 0.5, Shape.TRI))
+        Sfx.UPGRADE -> listOf(n(659.25, 80, 0.4), n(987.77, 200, 0.4))
+        Sfx.VICTORY -> listOf(n(392.0, 160, 0.5), n(523.25, 160, 0.5), n(659.25, 160, 0.5), n(783.99, 480, 0.5))
         Sfx.DEFEAT -> listOf(
-            n(261.63, 200, 0.5, Shape.TRI), n(233.08, 200, 0.5, Shape.TRI),
-            n(207.65, 200, 0.5, Shape.TRI), n(196.0, 520, 0.5, Shape.TRI)
+            n(246.94, 240, 0.45, Shape.TRI), n(220.0, 240, 0.45, Shape.TRI),
+            n(185.0, 240, 0.45, Shape.TRI), n(164.81, 600, 0.45, Shape.TRI)
         )
     }
 
@@ -57,16 +56,16 @@ object SfxSynth {
                     Shape.SINE -> sin(phase)
                     Shape.TRI -> 2.0 / PI * kotlin.math.asin(sin(phase))
                 }
-                val attack = minOf(1.0, i / (SAMPLE_RATE * 0.003))
+                val attack = minOf(1.0, i / (SAMPLE_RATE * 0.012))
                 val env = attack * exp(-4.0 * t)
                 val noise = note.noise * (rng.nextDouble() * 2 - 1) * exp(-9.0 * t)
                 out += ((wave * note.vol + noise) * env).toFloat()
             }
         }
-        // Normalize the loudest sample to 90% of full scale, never clipping.
+        // Normalize the loudest sample to 60% of full scale (soft by design), never clipping.
         var peak = 0f
         for (v in out) peak = maxOf(peak, abs(v))
-        val gain = if (peak > 0f) 0.9f / peak else 1f
+        val gain = if (peak > 0f) 0.6f / peak else 1f
         return ShortArray(out.size) { (out[it] * gain * Short.MAX_VALUE).toInt().coerceIn(-32767, 32767).toShort() }
     }
 

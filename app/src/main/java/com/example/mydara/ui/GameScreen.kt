@@ -3,6 +3,7 @@ package com.example.mydara.ui
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -42,7 +43,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.changedToDown
@@ -50,6 +50,7 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -64,15 +65,30 @@ import kotlin.math.roundToInt
 private val KnobText = Color(0xFF0B2A3A)
 private val DotsFill = Color(0xFF123A4E)
 
-/** Game UI: canvas + gestures + minimal HUD. [onExit] is the Return-to-menu button on the result overlay. */
+/**
+ * Game UI: canvas + gestures + minimal HUD. The three-dot icon opens a full-page pause menu (the game pauses
+ * while it is open): Resume, Restart (same map), New map (same settings) and Exit to menu.
+ */
 @Composable
-fun GameScreen(config: GameConfig, onExit: () -> Unit) {
+fun GameScreen(
+    config: GameConfig,
+    onBackToSetup: () -> Unit,
+    onExitToMenu: () -> Unit,
+    onRestart: (seed: Long) -> Unit,
+    onRegenerate: () -> Unit
+) {
     val slop = LocalViewConfiguration.current.touchSlop
+    val density = LocalDensity.current
+    // Space the HUD occupies: the camera keeps the whole map out of it.
+    val topInsetPx = with(density) { HUD_TOP_INSET.toPx() }.toDouble()
+    val bottomInsetPx = with(density) { HUD_BOTTOM_INSET.toPx() }.toDouble()
+
     val session = remember(config) { GameSession(config, slop.toDouble()) }
     var frameTick by remember(session) { mutableIntStateOf(0) }
     var hud by remember(session) { mutableStateOf(session.hudState()) }
     var speedOpen by remember(session) { mutableStateOf(false) }
-    var infoOpen by remember(session) { mutableStateOf(false) }
+    var menuOpen by remember(session) { mutableStateOf(false) }
+    var pausedBeforeMenu by remember(session) { mutableStateOf(false) }
     val paint = remember {
         Paint().apply {
             isAntiAlias = true
@@ -81,12 +97,29 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
         }
     }
 
-    // Sound + haptics: synthesized effects, switches persisted in SharedPreferences.
+    fun openMenu() {
+        pausedBeforeMenu = session.model.paused
+        session.model.paused = true
+        menuOpen = true
+    }
+
+    fun closeMenu() {
+        session.model.paused = pausedBeforeMenu
+        menuOpen = false
+    }
+
+    BackHandler {
+        when {
+            hud.outcome != Outcome.PLAYING -> onBackToSetup()
+            menuOpen -> closeMenu()
+            else -> openMenu()
+        }
+    }
+
+    // Sound + haptics: synthesized effects; the on/off switches live in the main menu's settings.
     val context = LocalContext.current
     val view = LocalView.current
     val feedback = remember { AndroidFeedback(context, view) }
-    var soundOn by remember { mutableStateOf(FeedbackSettings.sound) }
-    var hapticsOn by remember { mutableStateOf(FeedbackSettings.haptics) }
     DisposableEffect(session, feedback) {
         session.feedback.sink = feedback
         onDispose {
@@ -94,11 +127,7 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
         }
     }
     DisposableEffect(feedback) { onDispose { feedback.release() } }
-    LaunchedEffect(Unit) {
-        FeedbackPrefs.load(context)
-        soundOn = FeedbackSettings.sound
-        hapticsOn = FeedbackSettings.haptics
-    }
+    LaunchedEffect(Unit) { FeedbackPrefs.load(context) }
 
     // Game loop: one vsync-driven coroutine; the session runs fixed 60 Hz steps internally.
     LaunchedEffect(session) {
@@ -119,7 +148,9 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
         Canvas(
             Modifier
                 .fillMaxSize()
-                .onSizeChanged { session.camera.resize(it.width.toDouble(), it.height.toDouble()) }
+                .onSizeChanged {
+                    session.camera.resize(it.width.toDouble(), it.height.toDouble(), topInsetPx, bottomInsetPx)
+                }
                 .pointerInput(session) {
                     awaitPointerEventScope {
                         while (true) {
@@ -162,30 +193,9 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
             }
         }
 
-        // top-right: three-dot icon; tap for seed + sound / haptics switches
-        Column(
-            Modifier.align(Alignment.TopEnd).padding(end = 6.dp, top = 10.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            MenuDotsIcon(onClick = { infoOpen = !infoOpen })
-            if (infoOpen) {
-                Text(
-                    "seed ${session.seed}",
-                    color = IconFill.copy(alpha = 0.85f),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(end = 10.dp)
-                )
-                MenuToggle("Sound", soundOn) {
-                    soundOn = !soundOn
-                    FeedbackSettings.sound = soundOn
-                    FeedbackPrefs.save(context)
-                }
-                MenuToggle("Haptics", hapticsOn) {
-                    hapticsOn = !hapticsOn
-                    FeedbackSettings.haptics = hapticsOn
-                    FeedbackPrefs.save(context)
-                }
-            }
+        // top-right: three-dot icon opens the pause menu page
+        Box(Modifier.align(Alignment.TopEnd).padding(end = 6.dp, top = 10.dp)) {
+            MenuDotsIcon(onClick = { openMenu() })
         }
 
         // bottom corners: upgrade buttons for the selected own planet
@@ -205,19 +215,22 @@ fun GameScreen(config: GameConfig, onExit: () -> Unit) {
             }
         }
 
-        if (hud.outcome != Outcome.PLAYING) ResultOverlay(hud.outcome, onExit)
+        if (hud.outcome != Outcome.PLAYING) {
+            ResultOverlay(hud.outcome, onNewMap = onRegenerate, onBackToSetup = onBackToSetup)
+        } else if (menuOpen) {
+            PauseMenu(
+                onResume = { closeMenu() },
+                onRestart = { onRestart(session.seed) },
+                onRegenerate = onRegenerate,
+                onExit = onExitToMenu
+            )
+        }
     }
 }
 
-@Composable
-private fun MenuToggle(label: String, on: Boolean, onClick: () -> Unit) {
-    Text(
-        "$label  ${if (on) "on" else "off"}",
-        color = IconFill.copy(alpha = if (on) 1f else 0.5f),
-        fontSize = 14.sp,
-        modifier = Modifier.clickable { onClick() }.padding(horizontal = 10.dp, vertical = 8.dp)
-    )
-}
+/** Height reserved for the HUD icons at the top / the bottom margin of the playable map area. */
+private val HUD_TOP_INSET = 72.dp
+private val HUD_BOTTOM_INSET = 28.dp
 
 private fun velocityLabel(v: Double): String =
     (if (v == v.toInt().toDouble()) v.toInt().toString() else v.toString()) + "x"
@@ -359,11 +372,11 @@ private fun UpgradeButton(type: PlanetType, affordable: Boolean, modifier: Modif
 }
 
 @Composable
-private fun ResultOverlay(outcome: Outcome, onExit: () -> Unit) {
+private fun ResultOverlay(outcome: Outcome, onNewMap: () -> Unit, onBackToSetup: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(BackgroundColor.copy(alpha = 0.8f))
+            .background(BackgroundColor.copy(alpha = 0.85f))
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) awaitPointerEvent().changes.forEach { it.consume() }
@@ -371,14 +384,16 @@ private fun ResultOverlay(outcome: Outcome, onExit: () -> Unit) {
             },
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
                 if (outcome == Outcome.VICTORY) "Victory" else "Defeat",
                 color = if (outcome == Outcome.VICTORY) Color(Fraction.PLAYER.argb) else Color(Fraction.RED.argb),
                 fontSize = 44.sp,
                 fontWeight = FontWeight.Light
             )
-            Button(onClick = onExit) { Text("Back to setup") }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onNewMap) { Text("New map") }
+            Button(onClick = onBackToSetup) { Text("Back to setup") }
         }
     }
 }

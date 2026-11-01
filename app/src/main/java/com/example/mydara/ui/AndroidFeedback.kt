@@ -49,8 +49,6 @@ class AndroidFeedback(context: Context, private val view: View) : FeedbackSink {
         val constant = when (haptic) {
             Haptic.SELECT -> HapticFeedbackConstants.CLOCK_TICK
             Haptic.ARM -> HapticFeedbackConstants.LONG_PRESS
-            Haptic.SEND -> HapticFeedbackConstants.VIRTUAL_KEY
-            Haptic.HIT -> HapticFeedbackConstants.KEYBOARD_TAP
             Haptic.CAPTURE, Haptic.UPGRADE, Haptic.VICTORY ->
                 if (api30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS
             Haptic.LOST, Haptic.DEFEAT ->

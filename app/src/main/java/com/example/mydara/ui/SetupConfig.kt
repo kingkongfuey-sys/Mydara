@@ -8,24 +8,13 @@ data class SetupConfig(
     val size: MapSize = MapSize.MEDIUM,
     val opponents: Int = 1,
     val difficulty: Difficulty = Difficulty.NORMAL,
-    val fogOfWar: Boolean = false,
-    val seedText: String = ""
+    val fogOfWar: Boolean = false
 ) {
-    /** Empty or unparsable seed = random (null). */
-    fun seed(): Long? = seedText.toLongOrNull()
-
+    /** Every match gets a fresh random map (the seed is chosen when the match is created). */
     fun toGameConfig(): GameConfig = GameConfig(
         size = size,
         opponents = opponents.coerceIn(1, 3),
         difficulty = difficulty,
-        fogOfWar = fogOfWar,
-        seed = seed()
+        fogOfWar = fogOfWar
     )
-
-    companion object {
-        const val MAX_SEED_DIGITS = 9
-
-        /** Keeps digits only and limits the length. */
-        fun sanitizeSeed(raw: String): String = raw.filter { it.isDigit() }.take(MAX_SEED_DIGITS)
-    }
 }

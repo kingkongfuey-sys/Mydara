@@ -1,23 +1,54 @@
 package com.example.mydara.game
 
-enum class Difficulty { EASY, NORMAL, HARD }
+/**
+ * What separates the difficulties. Every difficulty can build both economic and defensive planets;
+ * they differ only in how well they play.
+ *
+ * @param actionsPerSecond command budget (each send / upgrade / auto-target costs 1), refilled every 60 frames
+ * @param attackExtra extra units demanded beyond what an attack strictly needs (cautious = slower expansion)
+ * @param pickWeakest attack the cheapest affordable target (false = first affordable link)
+ * @param preferEnemies take enemy planets before neutral ones when both are affordable
+ * @param reinforce supply the front line: safe planets auto-target planets in danger / expansion fronts
+ * @param coordinated combine several planets to take an enemy planet none could take alone
+ * @param economicCap most economic planets the AI keeps (also limited to one per six owned planets)
+ * @param defenseThreat build a defensive planet on the front line once adjacent enemy garrisons add up to
+ *   this share of the planet's own strength (0 = any frontline planet with spare units)
+ */
+class Tactics(
+    val actionsPerSecond: Int,
+    val attackExtra: Int,
+    val pickWeakest: Boolean,
+    val preferEnemies: Boolean,
+    val reinforce: Boolean,
+    val coordinated: Boolean,
+    val economicCap: Int,
+    val defenseThreat: Double
+)
+
+enum class Difficulty(val tactics: Tactics) {
+    EASY(Tactics(1, 3, false, false, false, false, 1, 0.0)),
+    NORMAL(Tactics(2, 0, true, false, true, false, 2, 0.5)),
+    HARD(Tactics(2, 0, true, true, true, true, 3, 0.6))
+}
 
 /**
- * One AI opponent (mirrors AbstractAiEntity / AiCustomEntity, simplified). Pure model code.
- * Call [update] after every [GameModel.step]. All commands go through the public GameModel API, so the
- * AI obeys the same link rules as the player and always launches a planet's full garrison.
+ * One AI opponent. Pure model code; call [update] after every [GameModel.step]. All commands go through the
+ * public GameModel API, so the AI obeys the same link rules as the player and always launches a planet's
+ * full garrison.
  *
- * Cadence: perform() every 6 frames; budget of [ACTIONS_PER_SECOND] actions refilled every 60 frames;
- * every send / upgrade / auto-target costs 1 action (cancelling an auto-target is free).
+ * Fair play: the AI only looks at what a player could see under fog of war - its own planets, planets
+ * directly linked to them, and enemy batches travelling toward its own planets (those are always on a link
+ * next to one of its planets). It never reads other planets' auto-targets or batches elsewhere on the map.
  *
- * Difficulty gates behaviors: EASY = attacks only; NORMAL = + auto-targets + economic upgrades;
- * HARD = + defensive upgrades + coordinated attacks.
+ * Cadence: decisions every 6 frames; the action budget refills every 60 frames.
  */
 class AiController(
     val difficulty: Difficulty,
     val fraction: Fraction,
     private val model: GameModel
 ) {
+    private val tactics = difficulty.tactics
+
     private class Info {
         var safe = true
         var threat = 0
@@ -29,7 +60,7 @@ class AiController(
     private var infos: Array<Info> = emptyArray()
     private var lastFrame = -1L
 
-    var budget: Int = ACTIONS_PER_SECOND
+    var budget: Int = tactics.actionsPerSecond
         private set
     var totalActions: Int = 0
         private set
@@ -46,7 +77,7 @@ class AiController(
         val f = model.frame
         if (f == lastFrame) return
         lastFrame = f
-        if (f % 60L == 0L) budget = ACTIONS_PER_SECOND
+        if (f % 60L == 0L) budget = tactics.actionsPerSecond
 
         val perform = f % 6L == 0L
         val slow = f % 10L == 0L
@@ -58,11 +89,11 @@ class AiController(
 
         if (perform) {
             checkForAttack(mine)
-            if (difficulty != Difficulty.EASY) checkToUpgrade(mine)
+            checkToUpgrade(mine)
         }
-        if (slow && difficulty != Difficulty.EASY) {
-            if (difficulty == Difficulty.HARD) checkForCoordinatedAttack()
-            updateSafeAutoTargets(mine)
+        if (slow) {
+            if (tactics.coordinated) checkForCoordinatedAttack(mine)
+            if (tactics.reinforce) updateSafeAutoTargets(mine)
         }
     }
 
@@ -71,6 +102,8 @@ class AiController(
     private fun isEnemy(p: Planet) = !p.fraction.isNeutral && p.fraction != fraction
 
     private fun info(p: Planet): Info = infos[p.id]
+
+    private fun maxEconomic(mine: List<Planet>) = minOf(tactics.economicCap, mine.size / 6)
 
     private fun updateData(mine: List<Planet>) {
         if (infos.size != model.planets.size) infos = Array(model.planets.size) { Info() }
@@ -88,6 +121,7 @@ class AiController(
             d.safe = d.adjacentEnemies == 0
             d.requestPriority = if (p.type == PlanetType.NORMAL) neutralNeighbors else 0
         }
+        // Only batches heading into one of our planets; they travel on a link next to that planet.
         for (b in model.batches) {
             if (b.alive && b.fraction != fraction && b.to.fraction == fraction) infos[b.to.id].threat += b.value
         }
@@ -111,27 +145,38 @@ class AiController(
 
     // ------------------------------------------------------------------ behaviors
 
-    /** checkForAttack: attack the weakest adjacent non-own planet we can beat. */
     private fun checkForAttack(mine: List<Planet>) {
         for (p in mine) {
             if (budget <= 0) return
             if (info(p).threat > p.fullHp / 2.0) continue
             val own = p.wholeUnits
             if (own < 1) continue
-            var best: Planet? = null
-            for (link in p.links) {
-                val t = link.other(p)
-                if (t.fraction == fraction) continue
-                val need = if (t.fraction.isNeutral) t.fullHp else t.fullHp + 5
-                if (own >= need && (best == null || t.fullHp < best.fullHp)) best = t
-            }
-            val choice = best
-            if (choice != null) spend { model.send(p, choice) }
+            val target = pickTarget(p, own) ?: continue
+            spend { model.send(p, target) }
         }
     }
 
+    private fun pickTarget(p: Planet, own: Int): Planet? {
+        val affordable = ArrayList<Planet>()
+        for (link in p.links) {
+            val t = link.other(p)
+            if (t.fraction == fraction) continue
+            val need = (if (t.fraction.isNeutral) t.fullHp else t.fullHp + 5) + tactics.attackExtra
+            if (own >= need) affordable += t
+        }
+        if (affordable.isEmpty()) return null
+        if (!tactics.pickWeakest) return affordable.first()
+        val pool = if (tactics.preferEnemies && affordable.any { isEnemy(it) }) {
+            affordable.filter { isEnemy(it) }
+        } else {
+            affordable
+        }
+        return pool.minWithOrNull(compareBy<Planet>({ it.fullHp }, { it.id }))
+    }
+
+    /** Every difficulty builds both planet types; the thresholds differ (see [Tactics]). */
     private fun checkToUpgrade(mine: List<Planet>) {
-        val maxEconomic = minOf(2, mine.size / 6)
+        val maxEconomic = maxEconomic(mine)
         var economic = mine.count { it.type == PlanetType.ECONOMIC }
         for (p in mine) {
             if (budget <= 0) return
@@ -139,25 +184,27 @@ class AiController(
             val d = info(p)
             if (d.safe && economic < maxEconomic) {
                 if (spend { model.upgrade(p, PlanetType.ECONOMIC) }) { economic++; upgradesPerformed++ }
-            } else if (difficulty == Difficulty.HARD && !d.safe && d.adjacentEnemies >= 2 &&
-                d.potentialThreat >= 0.7 * p.fullHp
+            } else if (!d.safe && d.adjacentEnemies >= 1 &&
+                d.potentialThreat >= tactics.defenseThreat * p.fullHp
             ) {
                 if (spend { model.upgrade(p, PlanetType.DEFENSIVE) }) upgradesPerformed++
             }
         }
     }
 
-    /** Hard only: combine adjacent AI planets to take an enemy planet no single planet could. */
-    private fun checkForCoordinatedAttack() {
-        for (t in model.planets) {
-            if (!isEnemy(t)) continue
+    /** Combine adjacent planets to take an enemy planet no single planet could (only planets next to ours). */
+    private fun checkForCoordinatedAttack(mine: List<Planet>) {
+        val targets = mine.flatMap { p -> p.links.map { it.other(p) } }
+            .filter { isEnemy(it) }
+            .distinct()
+            .sortedBy { it.id }
+        for (t in targets) {
             val adjacent = t.links.map { it.other(t) }
                 .filter { it.fraction == fraction && it.wholeUnits >= 1 }
                 .sortedByDescending { it.wholeUnits }
             if (adjacent.size < 2) continue
             val need = t.fullHp + 8
             if (adjacent.sumOf { it.wholeUnits } < need) continue
-            // Smallest set of strongest planets that reaches the threshold.
             val group = ArrayList<Planet>()
             var sum = 0
             for (a in adjacent) {
@@ -174,7 +221,7 @@ class AiController(
 
     /** Safe, non-defensive planets feed planets in danger, or allies with a higher request priority. */
     private fun updateSafeAutoTargets(mine: List<Planet>) {
-        val maxEconomic = minOf(2, mine.size / 6)
+        val maxEconomic = maxEconomic(mine)
         val economic = mine.count { it.type == PlanetType.ECONOMIC }
         val danger = mine.filter { inDanger(it) }
 
@@ -219,8 +266,6 @@ class AiController(
     }
 
     companion object {
-        const val ACTIONS_PER_SECOND = 2
-
         /** One controller per non-player fraction present on the map. */
         fun forOpponents(model: GameModel, difficulty: Difficulty): List<AiController> =
             Fraction.AI_ORDER

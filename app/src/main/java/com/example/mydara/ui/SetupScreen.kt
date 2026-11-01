@@ -13,16 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mydara.game.Difficulty
@@ -32,18 +29,18 @@ import com.example.mydara.game.MapSize
 private fun pretty(e: Enum<*>): String = e.name.lowercase().replaceFirstChar { it.uppercase() }
 
 private fun blurb(d: Difficulty): String = when (d) {
-    Difficulty.EASY -> "Attacks weak neighbors. Never upgrades planets."
-    Difficulty.NORMAL -> "Also reinforces its front line and builds economic planets."
-    Difficulty.HARD -> "Also fortifies threatened planets and coordinates attacks."
+    Difficulty.EASY -> "Slow and cautious: one command per second, attacks the first target it can afford, never supplies its front line."
+    Difficulty.NORMAL -> "Attacks the weakest neighbor and keeps its front line supplied."
+    Difficulty.HARD -> "Prefers enemy planets, fortifies early, builds more economy and combines planets for joint attacks."
 }
 
 private fun difficultyTag(d: Difficulty): String = when (d) {
-    Difficulty.EASY -> "attacks"
-    Difficulty.NORMAL -> "+ economy"
-    Difficulty.HARD -> "+ tactics"
+    Difficulty.EASY -> "cautious"
+    Difficulty.NORMAL -> "balanced"
+    Difficulty.HARD -> "coordinated"
 }
 
-/** Skirmish setup: map size, opponents, difficulty, fog of war, seed. No map preview. */
+/** Skirmish setup: map size, opponents, difficulty, fog of war. Every match gets a fresh random map. */
 @Composable
 fun SetupScreen(
     setup: SetupConfig,
@@ -111,17 +108,6 @@ fun SetupScreen(
                 checked = setup.fogOfWar,
                 onChecked = { onChange(setup.copy(fogOfWar = it)) }
             )
-
-            Section("Seed") {
-                OutlinedTextField(
-                    value = setup.seedText,
-                    onValueChange = { onChange(setup.copy(seedText = SetupConfig.sanitizeSeed(it))) },
-                    label = { Text("Empty = random") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
 
             Spacer(Modifier.height(4.dp))
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth().height(56.dp)) {

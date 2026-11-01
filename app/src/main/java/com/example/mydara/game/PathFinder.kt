@@ -1,6 +1,6 @@
 package com.example.mydara.game
 
-/** Plain BFS over the link graph (mirrors the original PathFinder). */
+/** Plain BFS over the link graph. */
 object PathFinder {
 
     /**

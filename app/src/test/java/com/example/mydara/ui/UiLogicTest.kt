@@ -56,20 +56,20 @@ class UiLogicTest {
     }
 
     @Test
-    fun zoomIsClampedAndPanStaysInsideMap() {
-        val cam = Camera(1.0, 1.6, 2.1)
+    fun zoomIsClampedAndPanStopsAtTheOutermostPlanets() {
+        val cam = Camera(1.0, 1.6, 2.1, panInset = 0.1)
         cam.resize(1000.0, 1600.0)
         cam.zoomAt(100.0, 500.0, 800.0)
         assertEquals(2.1, cam.zoom, 1e-9)
         cam.zoomAt(0.0001, 500.0, 800.0)
         assertEquals(Camera.MIN_ZOOM, cam.zoom, 1e-9)
-        cam.zoomAt(100.0, 500.0, 800.0)
-        cam.pan(100000.0, 100000.0)
-        val hw = cam.viewW / (2 * cam.scale)
-        assertTrue(cam.cx >= hw - 1e-9)
-        assertTrue(cam.cy >= cam.viewH / (2 * cam.scale) - 1e-9)
+        // free panning at any zoom, but never past the outermost planet centres
+        cam.pan(1e7, 1e7)
+        assertEquals(0.1, cam.cx, 1e-9)
+        assertEquals(0.1, cam.cy, 1e-9)
         cam.pan(-1e7, -1e7)
-        assertTrue(cam.cx <= 1.0 - hw + 1e-9)
+        assertEquals(0.9, cam.cx, 1e-9)
+        assertEquals(1.5, cam.cy, 1e-9)
     }
 
     @Test
@@ -337,5 +337,45 @@ class UiLogicTest {
         assertFalse(UnitLabel.visible(10))
         assertTrue(UnitLabel.visible(11))
         assertTrue(UnitLabel.visible(250))
+    }
+
+    @Test
+    fun fogHidesFarEnemyTrafficUntilWithinTwoLinks() {
+        val s = GameSession(GameConfig(size = MapSize.LARGE, opponents = 1, fogOfWar = true, seed = 21L))
+        s.advance(0.02, 0)
+        val own = s.model.planetsOf(Fraction.PLAYER).single()
+        // hop distance from the player's planet
+        val dist = HashMap<Planet, Int>()
+        val queue = ArrayDeque<Planet>()
+        dist[own] = 0; queue.addLast(own)
+        while (queue.isNotEmpty()) {
+            val c = queue.removeFirst()
+            for (l in c.links) { val n = l.other(c); if (n !in dist) { dist[n] = dist.getValue(c) + 1; queue.addLast(n) } }
+        }
+        fun trafficOn(link: com.example.mydara.game.Link): com.example.mydara.game.UnitBatch {
+            link.a.fraction = Fraction.RED; link.b.fraction = Fraction.RED
+            link.a.units = 5.0
+            assertTrue(s.model.send(link.a, link.b))
+            s.advance(0.02, 10)
+            return s.model.batches.last { it.link === link }
+        }
+        val far = s.model.links.first { minOf(dist.getValue(it.a), dist.getValue(it.b)) >= 3 }
+        assertFalse("3+ links away must stay hidden", s.isUnitVisible(trafficOn(far)))
+        val near = s.model.links.first {
+            val d = minOf(dist.getValue(it.a), dist.getValue(it.b))
+            d == 2 && it.a !== own && it.b !== own && it.a.fraction != Fraction.RED
+        }
+        assertTrue("2 links away is visible", s.isUnitVisible(trafficOn(near)))
+
+        // own traffic is always visible; without fog everything is
+        s.model.planetsOf(Fraction.PLAYER).single().units = 9.0
+        assertTrue(s.model.send(own, own.links.first().other(own)))
+        assertTrue(s.isUnitVisible(s.model.batches.last()))
+        val open = GameSession(GameConfig(size = MapSize.LARGE, fogOfWar = false, seed = 21L))
+        open.model.planets[0].fraction.let { }
+        val some = open.model.links.first()
+        some.a.fraction = Fraction.RED; some.a.units = 5.0
+        assertTrue(open.model.send(some.a, some.b))
+        assertTrue(open.isUnitVisible(open.model.batches.last()))
     }
 }
