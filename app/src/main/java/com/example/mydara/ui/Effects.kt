@@ -113,7 +113,14 @@ class Star(val x: Double, val y: Double, val life: Int) {
         }
 }
 
-/** Decorative stars at random map positions (StarsManager). Spawn rate per size, checked every 6 frames. */
+/**
+ * Decorative stars (StarsManager). Spawn rate per size, checked every 6 frames.
+ *
+ * The spawn rate is per map-sized area. [step] can be given the world rectangle that is currently on screen:
+ * stars then appear across all of it (outside the map too, e.g. when zoomed far out), and the number of
+ * spawn attempts grows with the area so the density stays the same as inside the map. Without a rectangle
+ * the stars stay inside the map, as before.
+ */
 class StarField(seed: Long, private val width: Double, private val height: Double, size: MapSize) {
     private val rng = Random(seed)
     private val live = ArrayList<Star>()
@@ -125,7 +132,13 @@ class StarField(seed: Long, private val width: Double, private val height: Doubl
     }
     val stars: List<Star> get() = live
 
-    fun step(frame: Long) {
+    fun step(
+        frame: Long,
+        minX: Double = 0.0,
+        minY: Double = 0.0,
+        maxX: Double = width,
+        maxY: Double = height
+    ) {
         var i = 0
         while (i < live.size) {
             val s = live[i]
@@ -139,16 +152,33 @@ class StarField(seed: Long, private val width: Double, private val height: Doubl
         }
         if (frame % 6L == 0L) {
             // Interpretation of "N stars per check": N candidates, each spawning with 10% chance.
-            repeat(rate) {
+            val spanX = maxX - minX
+            val spanY = maxY - minY
+            val mapArea = width * height
+            val areaRatio = if (mapArea > 0.0 && spanX > 0.0 && spanY > 0.0) {
+                (spanX * spanY / mapArea).coerceIn(0.0, MAX_AREA_RATIO)
+            } else {
+                1.0
+            }
+            // rate * ratio attempts; the fractional part is resolved randomly so low ratios still spawn
+            val attempts = (rate * areaRatio + rng.nextDouble()).toInt()
+            repeat(attempts) {
                 if (live.size < MAX_STARS && rng.nextDouble() < SPAWN_CHANCE) {
-                    live += Star(rng.nextDouble() * width, rng.nextDouble() * height, 120 + rng.nextInt(120))
+                    live += Star(
+                        minX + rng.nextDouble() * spanX,
+                        minY + rng.nextDouble() * spanY,
+                        120 + rng.nextInt(120)
+                    )
                 }
             }
         }
     }
 
     companion object {
-        const val MAX_STARS = 600
+        const val MAX_STARS = 1200
         const val SPAWN_CHANCE = 0.1
+
+        /** Most map-sized areas worth of stars spawned at once (a fully zoomed-out screen on a phone). */
+        const val MAX_AREA_RATIO = 8.0
     }
 }

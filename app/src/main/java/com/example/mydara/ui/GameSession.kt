@@ -176,7 +176,15 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
         }
         if (!model.paused) {
             particles.step()
-            stars.step(model.frame)
+            // Stars fill everything on screen (plus a margin so fast panning does not outrun them),
+            // not just the area of the map.
+            val x0 = camera.toWorldX(0.0)
+            val x1 = camera.toWorldX(camera.viewW)
+            val y0 = camera.toWorldY(0.0)
+            val y1 = camera.toWorldY(camera.viewH)
+            val padX = (x1 - x0) * STAR_VIEW_MARGIN
+            val padY = (y1 - y0) * STAR_VIEW_MARGIN
+            stars.step(model.frame, x0 - padX, y0 - padY, x1 + padX, y1 + padY)
         }
     }
 
@@ -223,6 +231,7 @@ class GameSession(val config: GameConfig, touchSlopPx: Double = 12.0) {
     companion object {
         const val PLANET_VISION_HOPS = 1
         const val UNIT_VISION_HOPS = 2
+        private const val STAR_VIEW_MARGIN = 0.1
         private const val UNREACHED = Int.MAX_VALUE / 2
     }
 }
