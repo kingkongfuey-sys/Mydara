@@ -25,12 +25,23 @@ enum class MapSize(val planetCount: Int) {
 object MapGenerator {
 
     /**
-     * Minimum center-to-center distance (3.5 planet radii). The prompt asks for 3.5 radii "between edges"
-     * (= 0.275 center to center), which is impossible together with the 0.22 link cap, so spacing is
-     * measured center to center here.
+     * Minimum center-to-center distance (2.8 planet radii = 0.14). Two planets this close still have separate
+     * touch zones (1.3 radii each), so every planet stays tappable. Spacing is measured center to center.
      */
-    const val MIN_CENTER_DISTANCE = 3.5 * Planet.RADIUS
-    const val MAX_LINK_DISTANCE = 0.22
+    const val MIN_CENTER_DISTANCE = 2.8 * Planet.RADIUS
+
+    /**
+     * Longest possible link. Links range from [MIN_CENTER_DISTANCE] up to this, so a map mixes short hops
+     * with long bridges (unit travel time is proportional to link length).
+     */
+    const val MAX_LINK_DISTANCE = 0.34
+
+    /** Longest step the layout growth takes from an existing planet (kept below the link cap so the graph stays connected). */
+    private const val GROW_MAX_DISTANCE = 0.30
+
+    /** A candidate site counts a planet as a neighbour within this distance (lattice-like sites score slightly better). */
+    private const val NEIGHBOR_RADIUS = 0.2
+    private const val NEIGHBOR_WEIGHT = 0.05
     const val MAX_LINKS = 4
 
     /** Empty border (map units) around the outermost planets in the cropped playfield. */
@@ -75,7 +86,7 @@ object MapGenerator {
         xs[0] = lo + rng.nextDouble() * (w - 2 * lo)
         ys[0] = lo + rng.nextDouble() * (h - 2 * lo)
 
-        // Grow outward: each new planet sits 3.5..~4.4 radii from an existing one (so the graph is
+        // Grow outward: each new planet sits MIN..GROW_MAX (0.14..0.30) from an existing one (so the graph is
         // connected by construction), preferring spots toward a random target to fill the playfield.
         var count = 1
         var fails = 0
@@ -90,10 +101,10 @@ object MapGenerator {
                 var cx: Double
                 var cy: Double
                 if (i % 2 == 0) {
-                    // a site at distance 3.5..4.4 radii from one existing planet
+                    // a site 0.14..0.30 from one existing planet (uniform, so short and long steps both occur)
                     val a = rng.nextInt(count)
                     val ang = rng.nextDouble() * 2 * PI
-                    val dist = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
+                    val dist = MIN_CENTER_DISTANCE + (GROW_MAX_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
                     cx = xs[a] + cos(ang) * dist
                     cy = ys[a] + sin(ang) * dist
                 } else {
@@ -104,9 +115,9 @@ object MapGenerator {
                     val dx = xs[b] - xs[a]
                     val dy = ys[b] - ys[a]
                     val d = hypot(dx, dy)
-                    if (d < 0.01 || d > 2 * MAX_LINK_DISTANCE) return@repeat
-                    val r1 = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
-                    val r2 = MIN_CENTER_DISTANCE + (MAX_LINK_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
+                    if (d < 0.01 || d > 2 * GROW_MAX_DISTANCE) return@repeat
+                    val r1 = MIN_CENTER_DISTANCE + (GROW_MAX_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
+                    val r2 = MIN_CENTER_DISTANCE + (GROW_MAX_DISTANCE - MIN_CENTER_DISTANCE) * rng.nextDouble()
                     if (d > r1 + r2 || d < kotlin.math.abs(r1 - r2)) return@repeat
                     val along = (r1 * r1 - r2 * r2 + d * d) / (2 * d)
                     val off = sqrt(maxOf(0.0, r1 * r1 - along * along))
@@ -119,10 +130,10 @@ object MapGenerator {
                 for (k in 0 until count) {
                     val dk = hypot(cx - xs[k], cy - ys[k])
                     if (dk < MIN_CENTER_DISTANCE) return@repeat
-                    if (dk <= MAX_LINK_DISTANCE) neighbors++
+                    if (dk <= NEIGHBOR_RADIUS) neighbors++
                 }
-                // closer to the growth target is better; sites with 2-3 neighbors (lattice-like) are better still
-                val score = -hypot(cx - tx, cy - ty) + 0.1 * minOf(neighbors, 3)
+                // closer to the growth target is better; sites with a few neighbours are slightly better still
+                val score = -hypot(cx - tx, cy - ty) + NEIGHBOR_WEIGHT * minOf(neighbors, 3)
                 if (score > bestScore) { bestScore = score; bx = cx; by = cy; found = true }
             }
             if (!found) {
